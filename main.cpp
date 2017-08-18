@@ -51,26 +51,29 @@ struct Vec2
         : x(x), y(y)
     {}
 
-    void operator+=(const Vec2<T>& rhs)
+    Vec2& operator+=(const Vec2<T>& rhs)
     {
         x += rhs.x;
         y += rhs.y;
+        return *this;
     }
-    void operator-=(const Vec2<T>& rhs)
+    Vec2& operator-=(const Vec2<T>& rhs)
     {
         x -= rhs.x;
         y -= rhs.y;
+        return *this;
     }
-
-    void operator*=(T k)
+    Vec2& operator*=(T k)
     {
         x *= k;
         y *= k;
+        return *this;
     }
-    void operator/=(T k)
+    Vec2& operator/=(T k)
     {
         x /= k;
         y /= k;
+        return *this;
     }
 
     T lengthSq() const
@@ -172,6 +175,7 @@ struct Segment
 
     Point from() const { return p; }
     Point to() const { return Point(p.x + v.x, p.y + v.y); }
+    double length() const { return v.length(); }
 };
 
 const static double EQUAL_ERROR = 0.000000001;
@@ -218,13 +222,81 @@ public:
     {}
 
 private:
-    void draw(sf::RenderTarget& target, sf::RenderStates states) override const
+    void draw(sf::RenderTarget& target, sf::RenderStates states) const override
     {
         target.draw(vertices_.data(), 2, sf::Lines, states);
     }
 };
 
+class SfDot : public sf::Shape
+{
+private:
+    sf::CircleShape dot_;
+
+public:
+    SfDot(const Point& pos)
+        : dot_(10)
+    {
+        dot_.setPosition(pos.x, pos.y);
+        dot_.setPointCount(4);
+    }
+
+    std::size_t getPointCount() const override
+    {
+        return dot_.getPointCount();
+    }
+
+    sf::Vector2f getPoint(std::size_t index) const
+    {
+        return dot_.getPoint(index);
+    }
+};
+
 #include <iostream>
+
+class Player
+{
+private:
+    Point x_;
+    Vec2d v_, a_;
+
+public:
+    Player(const Point& x, const Vec2d& v, const Vec2d& a)
+        : x_(x), v_(v), a_(a)
+    {}
+
+    Point getPos() const { return x_; }
+    Vec2d getVelocity() const { return v_; }
+    Vec2d getAccel() const { return a_; }
+
+    void update(double dt, const std::vector<Segment>& walls)
+    {
+        Segment plMove{x_, v_ * dt};
+
+        // select wall with needed values which collides nearest.
+        std::optional<Segment> target;
+        Point colPos;
+        double minDistanceSq;
+        for(auto&& wall : walls){
+            auto res = checkCollision(plMove, wall);
+            if(!res)    continue;
+            auto p = *res;  // collision pos
+            double dist = distanceSq(p, x_);
+            if(target && dist >= minDistanceSq) continue;
+            target = wall;
+            colPos = p;
+            minDistanceSq = dist;
+        }
+
+        // calculate the next position
+        static const double e = 0.8;
+        auto vn = v_.norm();
+        auto tn = Vec2d(target->v.y, -target->v.x).norm();
+        auto d = vn - 2 * dot(vn, tn) * tn;
+        x_ = colPos + d * (plMove.length() - std::sqrt(minDistanceSq)) * e;
+        v_ = d * v_.length() * e;
+    }
+};
 
 int main()
 {
