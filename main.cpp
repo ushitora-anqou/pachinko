@@ -1,240 +1,12 @@
-#include <cstring>
-#include <memory>
 #include <optional>
-#include <string>
-#include <sstream>
+#include <vector>
 #include <SFML/Graphics.hpp>
+#include "hoolib.hpp"
+#include "canvas.hpp"
 
+#include <iostream>
 
-namespace HooLib {
-
-std::string createErrorMsg(const std::string& what, const char *file, int line)
-{
-    std::stringstream ss;
-    ss << "(<" << file << "," << line << ">" << what << ")";
-    return ss.str();
-}
-
-#define HOOLIB_ERROR(msg) HooLib::createErrorMsg((msg), __FILE__, __LINE__)
-#define HOOLIB_THROW(msg) { throw std::runtime_error(HOOLIB_ERROR(msg)); };
-#define HOOLIB_THROW_IF(ret, msg) if((ret)){HOOLIB_THROW((msg));}
-#define HOOLIB_THROW_UNLESS(ret, msg) HOOLIB_THROW_IF(!(ret), msg);
-
-#define unless(cond) if(!(cond))
-#define until(cond) while(!(cond))
-
-
-template<class T> std::string to_str(T t)
-{
-    std::stringstream ss;
-    ss << t;
-    return ss.str();
-}
-
-std::vector<std::string> splitStrByChars(const std::string& src, const std::string& delimChars)
-{
-    std::shared_ptr<char> data(new char[src.size() + 1], std::default_delete<char[]>());
-    std::vector<std::string> ret;
-
-    std::strcpy(data.get(), src.c_str());
-
-    char *p = std::strtok(data.get(), delimChars.c_str());
-    while(p != nullptr){
-        ret.emplace_back(p);
-        p = std::strtok(nullptr, delimChars.c_str());
-    }
-
-    return std::move(ret);
-}
-}
-
-class Canvas
-{
-private:
-    std::shared_ptr<sf::RenderWindow> window_;
-
-public:
-    Canvas()
-    {
-        sf::ContextSettings settings;
-        settings.antialiasingLevel = 8;
-        window_ = std::make_shared<sf::RenderWindow>(
-            sf::VideoMode(800, 600),
-            "Pachinko",
-            sf::Style::Default,
-            settings
-        );
-    }
-
-    template<class Func>
-    bool run(Func func)
-    {
-        while (window_->isOpen())
-        {
-            sf::Event event;
-            while (window_->pollEvent(event))
-                if (event.type == sf::Event::Closed)
-                    window_->close();
-
-            window_->clear(sf::Color::Black);
-            func(*window_);
-            window_->display();
-        }
-    }
-};
-
-#include <cmath>
-template<class T>
-struct Vec2
-{
-    using type = T;
-
-    T x, y;
-
-    Vec2()
-    {}
-    Vec2(T x, T y)
-        : x(x), y(y)
-    {}
-
-    Vec2& operator+=(const Vec2<T>& rhs)
-    {
-        x += rhs.x;
-        y += rhs.y;
-        return *this;
-    }
-    Vec2& operator-=(const Vec2<T>& rhs)
-    {
-        x -= rhs.x;
-        y -= rhs.y;
-        return *this;
-    }
-    Vec2& operator*=(T k)
-    {
-        x *= k;
-        y *= k;
-        return *this;
-    }
-    Vec2& operator/=(T k)
-    {
-        x /= k;
-        y /= k;
-        return *this;
-    }
-
-    T lengthSq() const
-    {
-        return x * x + y * y;
-    }
-    T length() const
-    {
-        using std::sqrt;
-        return sqrt(lengthSq());
-    }
-    Vec2<T> norm() const
-    {
-        const T len = length();
-        if(len > 0) return Vec2<T>(x / len, y / len);
-        return Vec2(0, 0);
-    }
-};
-
-template<class T>
-Vec2<T> operator+(const Vec2<T>& lhs, const Vec2<T>& rhs)
-{
-    Vec2<T> ret(lhs);
-    ret += rhs;
-    return ret;
-}
-
-template<class T>
-Vec2<T> operator-(const Vec2<T>& lhs, const Vec2<T>& rhs)
-{
-    Vec2<T> ret(lhs);
-    ret -= rhs;
-    return ret;
-}
-
-template<class T>
-Vec2<T> operator*(const Vec2<T>& lhs, T rhs)
-{
-    Vec2<T> ret(lhs);
-    ret *= rhs;
-    return ret;
-}
-
-template<class T>
-Vec2<T> operator*(T lhs, const Vec2<T>& rhs)
-{
-    Vec2<T> ret(rhs);
-    ret *= lhs;
-    return ret;
-}
-
-template<class T>
-Vec2<T> operator/(const Vec2<T>& lhs, T rhs)
-{
-    Vec2<T> ret(lhs);
-    ret /= rhs;
-    return ret;
-}
-
-template<class T>
-Vec2<T> operator/(T lhs, const Vec2<T>& rhs)
-{
-    Vec2<T> ret(rhs);
-    ret /= lhs;
-    return ret;
-}
-
-template<class T>
-double distance(const Vec2<T>& lhs, const Vec2<T>& rhs)
-{
-    return (lhs - rhs).length();
-}
-
-template<class T>
-double distanceSq(const Vec2<T>& lhs, const Vec2<T>& rhs)
-{
-    return (lhs - rhs).lengthSq();
-}
-
-template<class T>
-double dot(const Vec2<T>& lhs, const Vec2<T>& rhs)
-{
-    return lhs.x * rhs.x + lhs.y * rhs.y;
-}
-
-template<class T>
-double cross(const Vec2<T>& lhs, const Vec2<T>& rhs)
-{
-    return lhs.x * rhs.y - lhs.y * rhs.x;
-}
-
-using Vec2d = Vec2<double>;
-using Point = Vec2d;
-
-struct Segment
-{
-    Point p;
-    Vec2d v;
-
-    Point from() const { return p; }
-    Point to() const { return Point(p.x + v.x, p.y + v.y); }
-    double length() const { return v.length(); }
-};
-
-const static double EQUAL_ERROR = 0.000000001;
-
-bool equal(double x, double y, double e = EQUAL_ERROR)
-{
-    return std::abs(x - y) < e;
-}
-
-bool equal0(double x, double e = EQUAL_ERROR)
-{
-    return equal(x, 0, e);
-}
+using HooLib::Vec2d, HooLib::Point, HooLib::Segment, HooLib::equal, HooLib::equal0, HooLib::distance, HooLib::distanceSq;
 
 std::optional<Point> checkCollision(const Segment& s0, const Segment& s1)
 {
@@ -252,43 +24,23 @@ std::optional<Point> checkCollision(const Segment& s0, const Segment& s1)
     return none;
 }
 
-sf::Vector2f toSfVec(const Vec2d& src)
+struct SegmentsCollision
 {
-    return sf::Vector2f(src.x, src.y);
+    std::array<Segment, 2> segment;
+    std::array<double, 2> distSq2Pos;
+    Point pos;
+};
+
+std::vector<SegmentsCollision> checkCollisions(const Segment& seg, const std::vector<Segment>& walls)
+{
+    std::vector<SegmentsCollision> colls;
+    for(auto&& wall : walls){
+        auto p = checkCollision(seg, wall);
+        if(!p)  continue;
+        colls.push_back(SegmentsCollision{{seg, wall}, {distanceSq(seg.from(), *p), distanceSq(wall.from(), *p)}, *p});
+    }
+    return colls;
 }
-
-class SfSegment : public sf::Drawable
-{
-private:
-    std::array<sf::Vertex, 2> vertices_;
-
-public:
-    SfSegment(const Segment& src)
-        : vertices_({toSfVec(src.from()), toSfVec(src.to())})
-    {}
-
-private:
-    void draw(sf::RenderTarget& target, sf::RenderStates states) const override
-    {
-        target.draw(vertices_.data(), 2, sf::Lines, states);
-    }
-};
-
-class SfDot : public sf::CircleShape
-{
-    constexpr static double RADIUS = 5, POINT_COUNT = 6;
-public:
-    SfDot(const Point& pos)
-        : sf::CircleShape(RADIUS)
-    {
-        setOrigin(RADIUS, RADIUS);
-        setPosition(pos.x, pos.y);
-        setPointCount(POINT_COUNT);
-        setFillColor(sf::Color::White);
-    }
-};
-
-#include <iostream>
 
 class Player
 {
@@ -307,88 +59,33 @@ public:
 
     void update(double dt, const std::vector<Segment>& walls)
     {
-        Segment plMove{x_, v_ * dt};
+        Segment move{x_, v_ * dt};
+        while(!equal0(move.length())){
+            // select wall with needed values which collides nearest.
+            auto collisions = checkCollisions(move, walls);
+            auto it = std::min_element(HOOLIB_RANGE(collisions), [move](auto target, auto smallest) {
+                if(equal(target.pos, move.from()))  return false;
+                return target.distSq2Pos[0] < smallest.distSq2Pos[0];
+            });
 
-        // select wall with needed values which collides nearest.
-        std::optional<Segment> target;
-        Point colPos;
-        double minDistanceSq;
-        for(auto&& wall : walls){
-            auto res = checkCollision(plMove, wall);
-            if(!res)    continue;
-            auto p = *res;  // collision pos
-            double dist = distanceSq(p, x_);
-            if(target && dist >= minDistanceSq) continue;
-            target = wall;
-            colPos = p;
-            minDistanceSq = dist;
-        }
+            if(it == collisions.end() || equal(it->pos, move.from()))   break;
 
-        if(target){
             // calculate the next position
             static const double e = 0.8;
             auto vn = v_.norm();
-            auto tn = Vec2d(target->v.y, -target->v.x).norm();
+            auto tn = Vec2d(it->segment[1].v.y, -it->segment[1].v.x).norm();
             auto d = vn - 2 * dot(vn, tn) * tn;
-            x_ = colPos + d * (plMove.length() - std::sqrt(minDistanceSq)) * e;
             v_ = d * v_.length() * e;
+            move = Segment{it->pos, d * (move.length() - std::sqrt(it->distSq2Pos[0])) * e};
         }
-        else{
-            x_ += v_ * dt;
-            v_ += a_ * dt;
-        }
+
+        x_ = move.to();
+        v_ += a_ * dt;
     }
 };
 
-class DebugPrinter : public sf::Drawable
-{
-private:
-    Point pos_;
-    sf::Font font_;
-    std::stringstream ss_;
+///
 
-public:
-    DebugPrinter(const Point& pos)
-        : pos_(pos)
-    {
-        HOOLIB_THROW_UNLESS(
-            font_.loadFromFile("/home/anqou/.fonts/Ricty-Regular.ttf"),
-            "Can't load font for debug"
-        );
-    }
-
-    template<class T> DebugPrinter& operator<<(T t)
-    {
-        ss_ << t;
-        return *this;
-    }
-
-    DebugPrinter& operator <<(std::ostream& (*manip)(std::ostream&)) {
-        manip(ss_);
-        return *this;
-    }
-
-    DebugPrinter& operator<<(const Vec2d& v)
-    {
-        ss_ << "(" << v.x << ", " << v.y << ")";
-        return *this;
-    }
-
-private:
-    void draw(sf::RenderTarget& target, sf::RenderStates states) const override
-    {
-        auto src = HooLib::splitStrByChars(ss_.str(), "\n");
-        for(int i = 0;i < src.size();i++){
-            sf::Text text;
-            text.setFont(font_);
-            text.setString(src[i]);
-            text.setCharacterSize(24);
-            text.setColor(sf::Color::White);
-            text.setPosition(pos_.x, pos_.y + i * 30);
-            target.draw(text, states);
-        }
-    }
-};
 
 int main()
 {
