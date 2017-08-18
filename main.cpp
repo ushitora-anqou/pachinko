@@ -1,6 +1,52 @@
+#include <cstring>
 #include <memory>
 #include <optional>
+#include <string>
+#include <sstream>
 #include <SFML/Graphics.hpp>
+
+
+namespace HooLib {
+
+std::string createErrorMsg(const std::string& what, const char *file, int line)
+{
+    std::stringstream ss;
+    ss << "(<" << file << "," << line << ">" << what << ")";
+    return ss.str();
+}
+
+#define HOOLIB_ERROR(msg) HooLib::createErrorMsg((msg), __FILE__, __LINE__)
+#define HOOLIB_THROW(msg) { throw std::runtime_error(HOOLIB_ERROR(msg)); };
+#define HOOLIB_THROW_IF(ret, msg) if((ret)){HOOLIB_THROW((msg));}
+#define HOOLIB_THROW_UNLESS(ret, msg) HOOLIB_THROW_IF(!(ret), msg);
+
+#define unless(cond) if(!(cond))
+#define until(cond) while(!(cond))
+
+
+template<class T> std::string to_str(T t)
+{
+    std::stringstream ss;
+    ss << t;
+    return ss.str();
+}
+
+std::vector<std::string> splitStrByChars(const std::string& src, const std::string& delimChars)
+{
+    std::shared_ptr<char> data(new char[src.size() + 1], std::default_delete<char[]>());
+    std::vector<std::string> ret;
+
+    std::strcpy(data.get(), src.c_str());
+
+    char *p = std::strtok(data.get(), delimChars.c_str());
+    while(p != nullptr){
+        ret.emplace_back(p);
+        p = std::strtok(nullptr, delimChars.c_str());
+    }
+
+    return std::move(ret);
+}
+}
 
 class Canvas
 {
@@ -199,9 +245,9 @@ std::optional<Point> checkCollision(const Segment& s0, const Segment& s1)
     double x = ((b.x - a.x) * (c.x * d.y - c.y * d.x) - (d.x - c.x) * (a.x * b.y - a.y * b.x)) / det,
            y = ((b.y - a.y) * (c.x * d.y - c.y * d.x) - (d.y - c.y) * (a.x * b.y - a.y * b.x)) / det;
     if(std::max(std::min(a.x, b.x), std::min(c.x, d.x)) <= x &&
-        x < std::min(std::max(a.x, b.x), std::max(c.x, d.x)) &&
+        x <= std::min(std::max(a.x, b.x), std::max(c.x, d.x)) &&
         std::max(std::min(a.y, b.y), std::min(c.y, d.y)) <= y &&
-        y < std::min(std::max(a.y, b.y), std::max(c.y, d.y)))
+        y <= std::min(std::max(a.y, b.y), std::max(c.y, d.y)))
             return Point(x, y);
     return none;
 }
@@ -228,27 +274,17 @@ private:
     }
 };
 
-class SfDot : public sf::Shape
+class SfDot : public sf::CircleShape
 {
-private:
-    sf::CircleShape dot_;
-
+    constexpr static double RADIUS = 5, POINT_COUNT = 6;
 public:
     SfDot(const Point& pos)
-        : dot_(10)
+        : sf::CircleShape(RADIUS)
     {
-        dot_.setPosition(pos.x, pos.y);
-        dot_.setPointCount(4);
-    }
-
-    std::size_t getPointCount() const override
-    {
-        return dot_.getPointCount();
-    }
-
-    sf::Vector2f getPoint(std::size_t index) const
-    {
-        return dot_.getPoint(index);
+        setOrigin(RADIUS, RADIUS);
+        setPosition(pos.x, pos.y);
+        setPointCount(POINT_COUNT);
+        setFillColor(sf::Color::White);
     }
 };
 
@@ -288,40 +324,97 @@ public:
             minDistanceSq = dist;
         }
 
-        // calculate the next position
-        static const double e = 0.8;
-        auto vn = v_.norm();
-        auto tn = Vec2d(target->v.y, -target->v.x).norm();
-        auto d = vn - 2 * dot(vn, tn) * tn;
-        x_ = colPos + d * (plMove.length() - std::sqrt(minDistanceSq)) * e;
-        v_ = d * v_.length() * e;
+        if(target){
+            // calculate the next position
+            static const double e = 0.8;
+            auto vn = v_.norm();
+            auto tn = Vec2d(target->v.y, -target->v.x).norm();
+            auto d = vn - 2 * dot(vn, tn) * tn;
+            x_ = colPos + d * (plMove.length() - std::sqrt(minDistanceSq)) * e;
+            v_ = d * v_.length() * e;
+        }
+        else{
+            x_ += v_ * dt;
+            v_ += a_ * dt;
+        }
+    }
+};
+
+class DebugPrinter : public sf::Drawable
+{
+private:
+    Point pos_;
+    sf::Font font_;
+    std::stringstream ss_;
+
+public:
+    DebugPrinter(const Point& pos)
+        : pos_(pos)
+    {
+        HOOLIB_THROW_UNLESS(
+            font_.loadFromFile("/home/anqou/.fonts/Ricty-Regular.ttf"),
+            "Can't load font for debug"
+        );
+    }
+
+    template<class T> DebugPrinter& operator<<(T t)
+    {
+        ss_ << t;
+        return *this;
+    }
+
+    DebugPrinter& operator <<(std::ostream& (*manip)(std::ostream&)) {
+        manip(ss_);
+        return *this;
+    }
+
+    DebugPrinter& operator<<(const Vec2d& v)
+    {
+        ss_ << "(" << v.x << ", " << v.y << ")";
+        return *this;
+    }
+
+private:
+    void draw(sf::RenderTarget& target, sf::RenderStates states) const override
+    {
+        auto src = HooLib::splitStrByChars(ss_.str(), "\n");
+        for(int i = 0;i < src.size();i++){
+            sf::Text text;
+            text.setFont(font_);
+            text.setString(src[i]);
+            text.setCharacterSize(24);
+            text.setColor(sf::Color::White);
+            text.setPosition(pos_.x, pos_.y + i * 30);
+            target.draw(text, states);
+        }
     }
 };
 
 int main()
 {
-    Segment bar = {Point(50, 50), Vec2d(100, 85)};
-    Segment player = {Point(75, 0), Vec2d(-1, 5)};
-    Vec2d d(-1, 5);
+    std::vector<Segment> bars = {
+        {Point(50, 200), Vec2d(100, 85)},
+        {Point(600, 500), Vec2d(-500, 30)},
+        {Point(600, 500), Vec2d(300, -500)},
+        {Point(105, 535), Vec2d(-100, -300)},
+    };
+    Player player(Point(80, 0), Vec2d(-1, 5), Vec2d(0, 200));
 
     sf::Clock clock;
     Canvas().run([&](auto& window) {
-        window.draw(SfSegment(bar));
-        window.draw(SfSegment(player));
+        // update
+        double dt = clock.restart().asSeconds();
+        player.update(dt, bars);
 
-        if(auto result = checkCollision(bar, player)){
-            auto p = *result;
-            double rest = d.length() - distance(p, player.p + player.v - d);
-            auto n = Vec2d(bar.v.y, -bar.v.x).norm();
-            d = d - 2 * dot(d, n) * n;
-            player.p = p + d.norm();
-            player.v = d;
-        }
-
-        if(clock.getElapsedTime().asMilliseconds() >= 200){
-            player.v += d;
-            clock.restart();
-        }
+        // draw
+        window.draw(SfDot(player.getPos()));
+        for(auto&& bar : bars)
+            window.draw(SfSegment(bar));
+        DebugPrinter printer(Point(500, 500));
+        printer << "x = " << player.getPos() << std::endl
+                << "v = " << player.getVelocity() << std::endl
+                << "a = " << player.getAccel() << std::endl;
+        window.draw(printer);
     });
     return 0;
 }
