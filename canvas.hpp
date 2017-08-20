@@ -30,6 +30,18 @@ private:
     }
 };
 
+class SfCircle : public sf::CircleShape
+{
+public:
+    SfCircle(const HooLib::Point& pos, double radius)
+        : sf::CircleShape(radius)
+    {
+        setOrigin(radius, radius);
+        setPosition(pos.x, pos.y);
+        setFillColor(sf::Color::White);
+    }
+};
+
 class SfDot : public sf::CircleShape
 {
     constexpr static double RADIUS = 3, POINT_COUNT = 6;

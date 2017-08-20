@@ -225,6 +225,8 @@ struct Vec2
 {
     using type = T;
 
+    static Vec2<T> zero() { return Vec2<T>(0, 0); }
+
     T x, y;
 
     Vec2()
@@ -328,6 +330,12 @@ Vec2<T> operator/(T lhs, const Vec2<T>& rhs)
     Vec2<T> ret(rhs);
     ret /= lhs;
     return ret;
+}
+
+template<class T>
+Vec2<T> operator-(const Vec2<T>& src)
+{
+    return Vec2<T>(-src.x, -src.y);
 }
 
 template<class T>
