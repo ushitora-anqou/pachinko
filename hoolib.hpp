@@ -232,6 +232,9 @@ inline std::vector<std::string> splitStrByChars(const std::string& src, const st
 
 ///
 
+namespace Geometry
+{
+
 template<class T>
 struct Vec2
 {
@@ -435,6 +438,7 @@ inline Segment makeSegment(const Point& from, const Point& to)
     return Segment{from, to - from};
 }
 
-}
+}   // namespace Geometry
+}   // namespace HooLib
 
 #endif

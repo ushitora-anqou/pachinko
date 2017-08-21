@@ -6,10 +6,7 @@
 
 #include <iostream>
 
-using
-    HooLib::Vec2d, HooLib::Point,
-    HooLib::Segment, HooLib::Circle, HooLib::Line,
-    HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq, HooLib::distance, HooLib::distanceSq, HooLib::sharpAngle;
+using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq;
 
 std::optional<Point> calcCollisionPos(const Line& line, const Circle& circle, const Segment& move)
 {
@@ -56,74 +53,95 @@ Vec2d getResilienceNorm(const Line& line, const Vec2d& v)
     return nv;
 }
 
-int main()
+class Ball
 {
-    std::vector<Segment> bars = {
-        {Point(100, 500), Vec2d(500, 50)},
-        //{Point(100, 800), Vec2d(500, -500)}
-    };
-    Circle ball{Point{99.99, 400}, 10};
-    Vec2d a{0, 300}, v{0, 0};
+    constexpr static double SEGMENT_THICKNESS = 0.01;
 
-    sf::Clock clock;
-    Canvas().run([&](auto& window) {
-        // update
-        double dt = clock.restart().asSeconds();
+private:
+    Circle c_;
+    Vec2d a_, v_;
 
+public:
+    Ball(const Circle& c, const Vec2d& a, const Vec2d& v)
+        : c_(c), a_(a), v_(v)
+    {}
+
+    const Circle& circle() const { return c_; }
+    const Vec2d& v() const { return v_; }
+    const Vec2d& a() const { return a_; }
+
+    void update(double dt, const std::vector<Segment>& bars)
+    {
         // avoid present collision
         while(true){
             bool hasNoCollision = true;
             for(auto&& bar : bars){
-                auto distVec = calcDistVec(ball.p, bar);
-                double x = ball.r - distVec.length();
+                auto distVec = calcDistVec(c_.p, bar);
+                double x = c_.r - distVec.length();
                 if(x < 0)   continue;
-                ball.p += (x + 0.01) * -distVec.norm();
+                c_.p += (x + SEGMENT_THICKNESS) * -distVec.norm();
                 hasNoCollision = false;
             }
             if(hasNoCollision)  break;
         }
 
         // check collisions in moving
-        Segment move{ball.p, v * dt};
+        Segment move{c_.p, v_ * dt};
         std::vector<std::pair<Point, Vec2d>> colls;
         for(auto&& bar : bars){
-            auto p = calcCollisionPos(bar, ball, move);
+            auto p = calcCollisionPos(bar, c_, move);
             if(!p)  continue;
             auto nv = getResilienceNorm(bar, move.v);
-            auto cp = *p - nv * ball.r;
+            auto cp = *p - nv * c_.r;
             if(!betweenEq(bar.left(), cp.x, bar.right()) || !betweenEq(bar.top(), cp.y, bar.bottom()))
                 continue;
             colls.emplace_back(*p, nv);
         }
         auto it = std::min_element(HOOLIB_RANGE(colls), [&](const auto& lhs, const auto& rhs) {
-            return distanceSq(ball.p, lhs.first) < distanceSq(ball.p, rhs.first);
+            return distanceSq(c_.p, lhs.first) < distanceSq(c_.p, rhs.first);
         });
         if(it != colls.end()){
-            v += 2 * dot(-v, it->second) * it->second * 0.8;
-            move = makeSegment(move.from(), it->first + it->second * 0.01);  //TODO
+            v_ += 2 * dot(-v_, it->second) * it->second * 0.8;
+            move = makeSegment(move.from(), it->first + it->second * SEGMENT_THICKNESS);
         }
 
         // check collisions after moving
         auto rv = Vec2d::zero();
         for(auto&& bar : bars){
             auto distVec = calcDistVec(move.to(), bar);
-            double x = ball.r - distVec.length();
+            double x = c_.r - distVec.length();
             if(x < 0)   continue;
             auto ndv = distVec.norm();
-            v += 2 * dot(-v, ndv) * ndv * 0.8;
+            v_ += 2 * dot(-v_, ndv) * ndv * 0.8;
         }
 
-        ball.p = move.to();
-        v += a * dt;
+        c_.p = move.to();
+        v_ += a_ * dt;
+    }
+};
+
+int main()
+{
+    std::vector<Segment> bars = {
+        {Point(100, 500), Vec2d(500, 50)},
+        //{Point(100, 800), Vec2d(500, -500)}
+    };
+    Ball ball{Circle{{99.99, 400}, 10}, {0, 300}, {0, 0}};
+
+    sf::Clock clock;
+    Canvas().run([&](auto& window) {
+        // update
+        double dt = clock.restart().asSeconds();
+        ball.update(dt, bars);
 
         // draw
-        window.draw(SfCircle(ball.p, ball.r));
+        window.draw(SfCircle(ball.circle()));
         for(auto&& bar : bars)
             window.draw(SfSegment(bar));
         DebugPrinter printer(Point(0, 0));
-        printer << "x = " << ball.p << std::endl
-                << "v = " << v << std::endl
-                << "a = " << a << std::endl;
+        printer << "x = " << ball.circle().p << std::endl
+                << "v = " << ball.v() << std::endl
+                << "a = " << ball.a() << std::endl;
         window.draw(printer);
     });
     return 0;

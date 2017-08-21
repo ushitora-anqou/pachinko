@@ -8,7 +8,9 @@
 #include <SFML/Graphics.hpp>
 #include "hoolib.hpp"
 
-inline sf::Vector2f toSfVec(const HooLib::Vec2d& src)
+using namespace HooLib::Geometry;
+
+inline sf::Vector2f toSfVec(const Vec2d& src)
 {
     return sf::Vector2f(src.x, src.y);
 }
@@ -19,7 +21,7 @@ private:
     std::array<sf::Vertex, 2> vertices_;
 
 public:
-    SfSegment(const HooLib::Segment& src)
+    SfSegment(const Segment& src)
         : vertices_({toSfVec(src.from()), toSfVec(src.to())})
     {}
 
@@ -33,11 +35,11 @@ private:
 class SfCircle : public sf::CircleShape
 {
 public:
-    SfCircle(const HooLib::Point& pos, double radius)
-        : sf::CircleShape(radius)
+    SfCircle(const Circle& circle)
+        : sf::CircleShape(circle.r)
     {
-        setOrigin(radius, radius);
-        setPosition(pos.x, pos.y);
+        setOrigin(circle.r, circle.r);
+        setPosition(circle.p.x, circle.p.y);
         //setFillColor(sf::Color::White);
         setFillColor(sf::Color::White);
     }
@@ -47,7 +49,7 @@ class SfDot : public sf::CircleShape
 {
     constexpr static double RADIUS = 3, POINT_COUNT = 6;
 public:
-    SfDot(const HooLib::Point& pos)
+    SfDot(const Point& pos)
         : sf::CircleShape(RADIUS)
     {
         setOrigin(RADIUS, RADIUS);
@@ -60,12 +62,12 @@ public:
 class DebugPrinter : public sf::Drawable
 {
 private:
-    HooLib::Point pos_;
+    Point pos_;
     sf::Font font_;
     std::stringstream ss_;
 
 public:
-    DebugPrinter(const HooLib::Point& pos)
+    DebugPrinter(const Point& pos)
         : pos_(pos)
     {
         HOOLIB_THROW_UNLESS(
@@ -85,7 +87,7 @@ public:
         return *this;
     }
 
-    DebugPrinter& operator<<(const HooLib::Vec2d& v)
+    DebugPrinter& operator<<(const Vec2d& v)
     {
         ss_ << "(" << v.x << ", " << v.y << ")";
         return *this;
