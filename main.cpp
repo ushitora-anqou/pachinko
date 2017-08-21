@@ -6,128 +6,82 @@
 
 #include <iostream>
 
-using HooLib::Vec2d, HooLib::Point, HooLib::Segment, HooLib::equal, HooLib::equal0, HooLib::distance, HooLib::distanceSq;
+using
+    HooLib::Vec2d, HooLib::Point,
+    HooLib::Segment, HooLib::Circle, HooLib::Line,
+    HooLib::equal, HooLib::equal0, HooLib::distance, HooLib::distanceSq;
 
-namespace Pachinko
+std::optional<Point> calcCollisionPos(const Line& line, const Circle& circle, const Segment& move)
 {
+    auto q = line.p, v = line.v.norm(), s0 = move.p, e = move.v;
+    auto a = -e + dot(e, v) * v, c = q - s0 + dot(s0 - q, v) * v;
+    double alpha = a.lengthSq();
+    if(equal0(alpha))   return std::nullopt;
+    double beta = dot(a, c), gamma = c.lengthSq() - circle.r * circle.r;
+    double Dquarter = beta * beta - alpha * gamma;
+    if(Dquarter < 0) return std::nullopt;
+    double t = (-beta - std::sqrt(Dquarter)) / alpha;
+    if(!(0 <= t && t <= 1))    return std::nullopt;
+    return s0 + t * e;
+}
 
-class Object
+double distance(const Point& p, const Line& l)
 {
-public:
-    struct Info
-    {
-        double m;
-        Point x;
-        Vec2d v = Vec2d::zero(), a = Vec2d::zero();
-    };
-
-    static double getSpringConst() { return 6000; }
-    static double getViscosityConst() { return 150; }
-
-private:
-    Info info_;
-
-protected:
-
-    virtual Vec2d getGivenForce(const std::vector<Segment>& bars) = 0;
-
-public:
-    Object(const Info& info)
-        : info_(info)
-    {}
-
-    double m() const { return info_.m; }
-    const Point& x() const { return info_.x; }
-    const Vec2d& v() const { return info_.v; }
-    const Vec2d& a() const { return info_.a; }
-
-    void update(double dt, const std::vector<Segment>& bars)
-    {
-        info_.a = getGivenForce(bars) / info_.m;
-        info_.v += info_.a * dt;
-        info_.x += info_.v * dt;
-    }
-};
-
-class GravitizedObject : public Object
-{
-private:
-    static constexpr double GRAV_ACCEL = 300;
-
-protected:
-    virtual Vec2d getGivenForceWithoutGravity(const std::vector<Segment>& bars) = 0;
-
-private:
-    Vec2d getGivenForce(const std::vector<Segment>& bars)
-    {
-        return getGivenForceWithoutGravity(bars) + Vec2d(0, GRAV_ACCEL * m());
-    }
-
-public:
-    GravitizedObject(const Object::Info& info)
-        : Object(info)
-    {}
-};
-
-class Circle : public GravitizedObject
-{
-private:
-    double r_;
-
-protected:
-    Vec2d getGivenForceWithoutGravity(const std::vector<Segment>& bars) override
-    {
-        std::optional<double> minD_;
-        Vec2d na, sv, snv;
-        for(auto&& bar : bars){
-            auto a = x() - bar.from(), b = x() - bar.to(), s = bar.v;
-            double d = std::abs(cross(s, a) / s.length());
-            if(d > r_)  continue;
-            if(!(dot(a, s) * dot(b, s) <= 0 || (r_ > a.length() || r_ > b.length())))   continue;
-            minD_ = d;
-            sv = bar.v.norm();
-            snv = Vec2d(sv.y, -sv.x);
-            na = a.norm();
-        }
-
-        if(!minD_)  return Vec2d::zero();
-        auto d_size = (getSpringConst() * (r_ - *minD_) - getViscosityConst() * std::abs(dot(v(), snv)));
-        auto d = snv * d_size;
-        //std::cout << *minD_ << ", " << d.x << ", " << d.y << ", " << d_size << std::endl;
-        return cross(sv, d) * cross(sv, na) > 0 ? d : -d;
-    }
-
-public:
-    Circle(double r, const Object::Info& info)
-        : GravitizedObject(info), r_(r)
-    {}
-
-    double r() const { return r_; }
-};
-
+    auto nv = l.v.norm();
+    return std::abs(cross(p, nv) + cross(nv, l.p));
 }
 
 int main()
 {
     std::vector<Segment> bars = {
-        {Point(100, 500), Vec2d(200, 0)},
+        {Point(100, 500), Vec2d(500, 50)},
+        {Point(100, 800), Vec2d(500, -500)}
     };
-    Pachinko::Circle ball{10, Pachinko::Object::Info{1, Point{150, 70}}};
+    Circle ball{Point{10, 400}, 10};
+    Vec2d a{0, 300}, v{0, 0};
 
     sf::Clock clock;
     Canvas().run([&](auto& window) {
         // update
         double dt = clock.restart().asSeconds();
-        ball.update(dt, bars);
+        Segment move{ball.p, v * dt};
+
+        std::vector<std::pair<Point, Vec2d>> colls;
+        for(auto&& bar : bars){
+            auto nv = Vec2d(bar.v.y, -bar.v.x).norm();
+            if(!sameSide(bar.v, -move.v, nv))   nv *= -1.;
+
+            auto p = calcCollisionPos(bar, ball, move);
+            if(p){
+                colls.emplace_back(*p, nv);
+            }
+            else{
+                double x = ball.r - distance(move.from(), bar);
+                if(x > 0){
+                    ball.p += (x + 1) * nv;
+                    v = dot(v, bar.v.norm()) * bar.v.norm();
+                }
+            }
+        }
+        auto it = std::min_element(HOOLIB_RANGE(colls), [&](const auto& lhs, const auto& rhs) {
+            return distanceSq(ball.p, lhs.first) < distanceSq(ball.p, rhs.first);
+        });
+        if(it != colls.end()){
+            v += 2 * dot(-v, it->second) * it->second * 0.8;
+            move = makeSegment(move.from(), it->first + it->second * 0.01);  //TODO
+        }
+
+        ball.p = move.to();
+        v += a * dt;
 
         // draw
-        window.draw(SfCircle(ball.x(), ball.r()));
+        window.draw(SfCircle(ball.p, ball.r));
         for(auto&& bar : bars)
             window.draw(SfSegment(bar));
         DebugPrinter printer(Point(0, 0));
-        printer << "x = " << ball.x() << std::endl
-                << "v = " << ball.v() << std::endl
-                << "a = " << ball.a() << std::endl;
+        printer << "x = " << ball.p << std::endl
+                << "v = " << v << std::endl
+                << "a = " << a << std::endl;
         window.draw(printer);
     });
     return 0;

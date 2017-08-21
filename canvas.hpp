@@ -38,6 +38,7 @@ public:
     {
         setOrigin(radius, radius);
         setPosition(pos.x, pos.y);
+        //setFillColor(sf::Color::White);
         setFillColor(sf::Color::White);
     }
 };
@@ -99,7 +100,7 @@ private:
             text.setFont(font_);
             text.setString(src[i]);
             text.setCharacterSize(24);
-            text.setFillColor(sf::Color::White);
+            text.setColor(sf::Color::White);
             text.setPosition(pos_.x, pos_.y + i * 30);
             target.draw(text, states);
         }

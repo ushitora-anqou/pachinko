@@ -380,29 +380,38 @@ bool vertical(const Vec2<T>& lhs, const Vec2<T>& rhs)
     return equal0(dot(lhs, rhs));
 }
 
+template<class T>
+bool sameSide(const Vec2<T>& base, const Vec2<T>& v1, const Vec2<T>& v2)
+{
+    return cross(base, v1) * cross(base, v2) > 0;
+}
+
 using Vec2d = Vec2<double>;
 using Point = Vec2d;
 
-struct Segment
+struct Line
 {
     Point p;
     Vec2d v;
+};
 
+struct Segment : public Line
+{
     Point from() const { return p; }
     Point to() const { return Point(p.x + v.x, p.y + v.y); }
     double length() const { return v.length(); }
-    bool contain(const Segment& seg) const
-    {
-        // 1. parallel
-        // 2. area
-        // 3. range
-        return parallel(v, seg.v) && equal0(cross(v.norm(), seg.p - p)) &&
-            std::min(from().x, to().x) <= std::min(seg.from().x, seg.to().x) &&
-            std::max(seg.from().x, seg.to().x) <= std::max(from().x, to().x) &&
-            std::min(from().y, to().y) <= std::min(seg.from().y, seg.to().y) &&
-            std::max(seg.from().y, seg.to().y) <= std::max(from().y, to().y);
-    }
 };
+
+struct Circle
+{
+    Point p;
+    double r;
+};
+
+inline Segment makeSegment(const Point& from, const Point& to)
+{
+    return Segment{from, to - from};
+}
 
 }
 
