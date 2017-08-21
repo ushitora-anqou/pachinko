@@ -48,6 +48,18 @@ inline bool equal0(double x)
 
 inline double divd(double lhs, double rhs) { return lhs / rhs; }
 
+template<class T>
+bool between(T l, T x, T r)
+{
+    return l < x && x < r;
+}
+
+template<class T>
+bool betweenEq(T l, T x, T r)
+{
+    return l <= x && x <= r;
+}
+
 inline std::string fok(const std::string& str)
 {
     return str;
@@ -386,6 +398,12 @@ bool sameSide(const Vec2<T>& base, const Vec2<T>& v1, const Vec2<T>& v2)
     return cross(base, v1) * cross(base, v2) > 0;
 }
 
+template<class T>
+bool sharpAngle(const Vec2<T>& v1, const Vec2<T>& v2)
+{
+    return dot(v1, v2) > 0;
+}
+
 using Vec2d = Vec2<double>;
 using Point = Vec2d;
 
@@ -400,6 +418,10 @@ struct Segment : public Line
     Point from() const { return p; }
     Point to() const { return Point(p.x + v.x, p.y + v.y); }
     double length() const { return v.length(); }
+    double left() const { return std::min(p.x, p.x + v.x); }
+    double right() const { return std::max(p.x, p.x + v.x); }
+    double top() const { return std::min(p.y, p.y + v.y); }
+    double bottom() const { return std::max(p.y, p.y + v.y); }
 };
 
 struct Circle
