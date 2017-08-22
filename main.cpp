@@ -1,4 +1,5 @@
 #include <optional>
+#include <tuple>
 #include <vector>
 #include <SFML/Graphics.hpp>
 #include "hoolib.hpp"
@@ -8,7 +9,13 @@
 
 using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq;
 
-std::optional<Point> calcCollisionPos(const Line& line, const Circle& circle, const Segment& move)
+// struct representing collision result between line and moving circle
+struct StaticLineVSMovingCircleCollRes
+{
+    double elapsedTime; // 0 <= t <= 1
+    Point contactPos;
+};
+std::optional<StaticLineVSMovingCircleCollRes> calcCollisionPos(const Line& line, const Circle& circle, const Segment& move)
 {
     auto q = line.p, v = line.v.norm(), s0 = move.p, e = move.v;
     auto a = -e + dot(e, v) * v, c = q - s0 + dot(s0 - q, v) * v;
@@ -19,7 +26,7 @@ std::optional<Point> calcCollisionPos(const Line& line, const Circle& circle, co
     if(Dquarter < 0) return std::nullopt;
     double t = (-beta - std::sqrt(Dquarter)) / alpha;
     if(!(0 <= t && t <= 1))    return std::nullopt;
-    return s0 + t * e;
+    return StaticLineVSMovingCircleCollRes{t, s0 + t * e};
 }
 
 bool sharpAngle(const Point& p1, const Point& p2, const Point& p3)
@@ -88,25 +95,26 @@ public:
         // check collisions in moving
         Segment move{c_.p, v_ * dt};
         while(!equal0(move.length())){
-            std::vector<std::pair<Point, Vec2d>> colls;
+            std::vector<std::tuple<Point, double, Vec2d>> colls;    // contact, elapsed, norm of bar
             for(auto&& bar : bars){
-                auto p = calcCollisionPos(bar, Circle{move.from(), c_.r}, move);
-                if(!p)  continue;
+                auto res = calcCollisionPos(bar, Circle{move.from(), c_.r}, move);
+                if(!res)  continue;
+                auto p = res->contactPos;
                 auto nv = getResilienceNorm(bar, move.v);
-                auto cp = *p - nv * c_.r;
+                auto cp = p - nv * c_.r;
                 if(!betweenEq(bar.left(), cp.x, bar.right()) || !betweenEq(bar.top(), cp.y, bar.bottom()))
                     continue;
-                colls.emplace_back(*p, nv);
+                colls.emplace_back(p, res->elapsedTime, nv);
             }
             auto it = std::min_element(HOOLIB_RANGE(colls), [&move](const auto& lhs, const auto& rhs) {
-                return distanceSq(move.from(), lhs.first) < distanceSq(move.from(), rhs.first);
+                return distanceSq(move.from(), std::get<0>(lhs)) < distanceSq(move.from(), std::get<0>(rhs));
             });
 
             if(it == colls.end())    break;
 
-            double elapsedTime = (it->first - move.from()).length() / v_.length();
-            v_ += 2 * dot(-v_, it->second) * it->second * 0.8;
-            move = Segment{it->first + it->second * SEGMENT_THICKNESS, v_ * (dt - elapsedTime)};
+            auto [p, t, nv] = *it;
+            v_ += 2 * dot(-v_, nv) * nv * 0.8;
+            move = Segment{p + nv * SEGMENT_THICKNESS, v_ * (1 - t) * dt};
         }
 
         // check collisions after moving
