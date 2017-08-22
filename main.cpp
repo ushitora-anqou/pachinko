@@ -119,9 +119,9 @@ public:
     const Vec2d& v() const { return v_; }
     const Vec2d& a() const { return a_; }
 
-    void update(double dt, const std::vector<Segment>& bars)
+private:
+    void avoidPresentCollision(const std::vector<Segment>& bars)
     {
-        // avoid present collision
         while(true){
             bool hasNoCollision = true;
             for(auto&& bar : bars){
@@ -133,6 +133,11 @@ public:
             }
             if(hasNoCollision)  break;
         }
+    }
+
+    void processCollision(double dt, const std::vector<Segment>& bars)
+    {
+        avoidPresentCollision(bars);
 
         // check collisions in moving
         Segment move{c_.p, v_ * dt};
@@ -152,10 +157,16 @@ public:
             double t = it->elapsedTime;
             auto p = it->circlePosOnHit, nv = (it->circlePosOnHit - it->contactPos).norm();
             v_ += 2 * dot(-v_, nv) * nv * 0.8;
-            move = Segment{p + nv * SEGMENT_THICKNESS, v_ * (1 - t) * dt};
+            move = Segment{p, v_ * (1 - t) * dt};
         }
 
         c_.p = move.to();
+    }
+
+public:
+    void update(double dt, const std::vector<Segment>& bars)
+    {
+        processCollision(dt, bars);
         v_ += a_ * dt;
     }
 };
