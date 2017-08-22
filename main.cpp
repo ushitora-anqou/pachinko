@@ -13,7 +13,7 @@ using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq;
 struct StaticLineVSMovingCircleCollRes
 {
     double elapsedTime; // 0 <= t <= 1
-    Point contactPos;
+    Point circlePosOnHit, contactPos;
 };
 std::optional<StaticLineVSMovingCircleCollRes> calcCollisionPos(const Line& line, const Circle& circle, const Segment& move)
 {
@@ -26,8 +26,16 @@ std::optional<StaticLineVSMovingCircleCollRes> calcCollisionPos(const Line& line
     if(Dquarter < 0) return std::nullopt;
     double t = (-beta - std::sqrt(Dquarter)) / alpha;
     if(!(0 <= t && t <= 1))    return std::nullopt;
-    return StaticLineVSMovingCircleCollRes{t, s0 + t * e};
+    auto p = s0 + t * e, n = t * a + c;
+    return StaticLineVSMovingCircleCollRes{t, p, p + n};
 }
+
+// struct representing collision result between segment and moving circle
+struct StaticSegmentVSMovingCircleCollRes
+{
+    double elapsedTime;
+    Point contactPos, circlePosOnHit;
+};
 
 bool sharpAngle(const Point& p1, const Point& p2, const Point& p3)
 {
@@ -95,24 +103,23 @@ public:
         // check collisions in moving
         Segment move{c_.p, v_ * dt};
         while(!equal0(move.length())){
-            std::vector<std::tuple<Point, double, Vec2d>> colls;    // contact, elapsed, norm of bar
+            std::vector<StaticLineVSMovingCircleCollRes> colls;
             for(auto&& bar : bars){
                 auto res = calcCollisionPos(bar, Circle{move.from(), c_.r}, move);
                 if(!res)  continue;
-                auto p = res->contactPos;
-                auto nv = getResilienceNorm(bar, move.v);
-                auto cp = p - nv * c_.r;
+                auto cp = res->contactPos;
                 if(!betweenEq(bar.left(), cp.x, bar.right()) || !betweenEq(bar.top(), cp.y, bar.bottom()))
                     continue;
-                colls.emplace_back(p, res->elapsedTime, nv);
+                colls.push_back(*res);
             }
             auto it = std::min_element(HOOLIB_RANGE(colls), [&move](const auto& lhs, const auto& rhs) {
-                return distanceSq(move.from(), std::get<0>(lhs)) < distanceSq(move.from(), std::get<0>(rhs));
+                return distanceSq(move.from(), lhs.circlePosOnHit) < distanceSq(move.from(), rhs.circlePosOnHit);
             });
 
             if(it == colls.end())    break;
 
-            auto [p, t, nv] = *it;
+            double t = it->elapsedTime;
+            auto p = it->circlePosOnHit, nv = (it->circlePosOnHit - it->contactPos).norm();
             v_ += 2 * dot(-v_, nv) * nv * 0.8;
             move = Segment{p + nv * SEGMENT_THICKNESS, v_ * (1 - t) * dt};
         }
