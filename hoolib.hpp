@@ -421,6 +421,7 @@ struct Segment : public Line
     Point from() const { return p; }
     Point to() const { return Point(p.x + v.x, p.y + v.y); }
     double length() const { return v.length(); }
+    double lengthSq() const { return v.lengthSq(); }
     double left() const { return std::min(p.x, p.x + v.x); }
     double right() const { return std::max(p.x, p.x + v.x); }
     double top() const { return std::min(p.y, p.y + v.y); }

@@ -9,6 +9,22 @@
 
 using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq;
 
+std::optional<std::pair<double, double>> solveQuadrantic(double a, double b, double c)
+{
+    if(equal0(a))   return std::nullopt;
+    double D = b * b - 4 * a * c;
+    if(D < 0)   return std::nullopt;
+    double sqrtD = std::sqrt(D);
+    return std::make_pair((-b - sqrtD) / (2 * a), (-b + sqrtD) / (2 * a));
+}
+
+// solve such vector equation for t :
+//   |A + tB| = k
+std::optional<std::pair<double, double>> solveLinerVectorSizeEq(const Vec2d& a, const Vec2d& b, double k)
+{
+    return solveQuadrantic(b.lengthSq(), 2 * dot(a, b), a.lengthSq() - k * k);
+}
+
 // struct representing collision result between line and moving circle
 struct StaticLineVSMovingCircleCollRes
 {
@@ -19,23 +35,41 @@ std::optional<StaticLineVSMovingCircleCollRes> calcCollisionPos(const Line& line
 {
     auto q = line.p, v = line.v.norm(), s0 = move.p, e = move.v;
     auto a = -e + dot(e, v) * v, c = q - s0 + dot(s0 - q, v) * v;
-    double alpha = a.lengthSq();
-    if(equal0(alpha))   return std::nullopt;
-    double beta = dot(a, c), gamma = c.lengthSq() - circle.r * circle.r;
-    double Dquarter = beta * beta - alpha * gamma;
-    if(Dquarter < 0) return std::nullopt;
-    double t = (-beta - std::sqrt(Dquarter)) / alpha;
-    if(!(0 <= t && t <= 1))    return std::nullopt;
-    auto p = s0 + t * e, n = t * a + c;
-    return StaticLineVSMovingCircleCollRes{t, p, p + n};
+    double k = circle.r;
+    if(auto res = solveLinerVectorSizeEq(c, a, k)){
+        if(betweenEq(0., res->first, 1.)){
+            double t = res->first;
+            auto p = s0 + t * e, n = t * a + c;
+            return StaticLineVSMovingCircleCollRes{t, p, p + n};
+        }
+    }
+    return std::nullopt;
 }
 
 // struct representing collision result between segment and moving circle
-struct StaticSegmentVSMovingCircleCollRes
+struct StaticSegmentVSMovingCircleCollRes : public StaticLineVSMovingCircleCollRes
+{};
+std::optional<StaticSegmentVSMovingCircleCollRes> calcCollisionPos(const Segment& segment, const Circle& circle, const Segment& move)
 {
-    double elapsedTime;
-    Point contactPos, circlePosOnHit;
-};
+    // First, check collision in the segment's body, not on its ends
+    if(auto res = calcCollisionPos(Line{segment.p, segment.v}, circle, move)){
+        auto cp = res->contactPos;
+        if(betweenEq(segment.left(), cp.x, segment.right()) && betweenEq(segment.top(), cp.y, segment.bottom()))
+            return StaticSegmentVSMovingCircleCollRes{res->elapsedTime, res->circlePosOnHit, res->contactPos};
+    }
+
+    // Then, check on ends
+    auto p0 = circle.p, e = move.v;
+    double k = circle.r;
+    if(auto res = solveLinerVectorSizeEq(p0 - segment.from(), e, k))
+        if(betweenEq(0., res->first, 1.))
+            return StaticSegmentVSMovingCircleCollRes{res->first, p0 + res->first * e, segment.from()};
+    if(auto res = solveLinerVectorSizeEq(p0 - segment.to(), e, k))
+        if(betweenEq(0., res->first, 1.))
+            return StaticSegmentVSMovingCircleCollRes{res->first, p0 + res->first * e, segment.to()};
+
+    return std::nullopt;
+}
 
 bool sharpAngle(const Point& p1, const Point& p2, const Point& p3)
 {
@@ -107,9 +141,6 @@ public:
             for(auto&& bar : bars){
                 auto res = calcCollisionPos(bar, Circle{move.from(), c_.r}, move);
                 if(!res)  continue;
-                auto cp = res->contactPos;
-                if(!betweenEq(bar.left(), cp.x, bar.right()) || !betweenEq(bar.top(), cp.y, bar.bottom()))
-                    continue;
                 colls.push_back(*res);
             }
             auto it = std::min_element(HOOLIB_RANGE(colls), [&move](const auto& lhs, const auto& rhs) {
@@ -124,16 +155,6 @@ public:
             move = Segment{p + nv * SEGMENT_THICKNESS, v_ * (1 - t) * dt};
         }
 
-        // check collisions after moving
-        auto rv = Vec2d::zero();
-        for(auto&& bar : bars){
-            auto distVec = calcDistVec(move.to(), bar);
-            double x = c_.r - distVec.length();
-            if(x < 0)   continue;
-            auto ndv = distVec.norm();
-            v_ += 2 * dot(-v_, ndv) * ndv * 0.8;
-        }
-
         c_.p = move.to();
         v_ += a_ * dt;
     }
@@ -142,10 +163,10 @@ public:
 int main()
 {
     std::vector<Segment> bars = {
-        {Point(100, 500), Vec2d(500, 50)},
-        //{Point(100, 800), Vec2d(500, -500)}
+        {Point(100, 500), Vec2d(500, 80)},
+        {Point(100, 800), Vec2d(500, -500)}
     };
-    Ball ball{Circle{{100.01, 400}, 10}, {0, 300}, {0, 0}};
+    Ball ball{Circle{{100.01, 400}, 5}, {0, 300}, {0, 0}};
 
     sf::Clock clock;
     Canvas().run([&](auto& window) {
