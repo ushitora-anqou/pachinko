@@ -55,7 +55,7 @@ Vec2d getResilienceNorm(const Line& line, const Vec2d& v)
 
 class Ball
 {
-    constexpr static double SEGMENT_THICKNESS = 0.01;
+    constexpr static double SEGMENT_THICKNESS = 0.0001;
 
 private:
     Circle c_;
@@ -87,22 +87,26 @@ public:
 
         // check collisions in moving
         Segment move{c_.p, v_ * dt};
-        std::vector<std::pair<Point, Vec2d>> colls;
-        for(auto&& bar : bars){
-            auto p = calcCollisionPos(bar, c_, move);
-            if(!p)  continue;
-            auto nv = getResilienceNorm(bar, move.v);
-            auto cp = *p - nv * c_.r;
-            if(!betweenEq(bar.left(), cp.x, bar.right()) || !betweenEq(bar.top(), cp.y, bar.bottom()))
-                continue;
-            colls.emplace_back(*p, nv);
-        }
-        auto it = std::min_element(HOOLIB_RANGE(colls), [&](const auto& lhs, const auto& rhs) {
-            return distanceSq(c_.p, lhs.first) < distanceSq(c_.p, rhs.first);
-        });
-        if(it != colls.end()){
+        while(!equal0(move.length())){
+            std::vector<std::pair<Point, Vec2d>> colls;
+            for(auto&& bar : bars){
+                auto p = calcCollisionPos(bar, Circle{move.from(), c_.r}, move);
+                if(!p)  continue;
+                auto nv = getResilienceNorm(bar, move.v);
+                auto cp = *p - nv * c_.r;
+                if(!betweenEq(bar.left(), cp.x, bar.right()) || !betweenEq(bar.top(), cp.y, bar.bottom()))
+                    continue;
+                colls.emplace_back(*p, nv);
+            }
+            auto it = std::min_element(HOOLIB_RANGE(colls), [&move](const auto& lhs, const auto& rhs) {
+                return distanceSq(move.from(), lhs.first) < distanceSq(move.from(), rhs.first);
+            });
+
+            if(it == colls.end())    break;
+
+            double elapsedTime = (it->first - move.from()).length() / v_.length();
             v_ += 2 * dot(-v_, it->second) * it->second * 0.8;
-            move = makeSegment(move.from(), it->first + it->second * SEGMENT_THICKNESS);
+            move = Segment{it->first + it->second * SEGMENT_THICKNESS, v_ * (dt - elapsedTime)};
         }
 
         // check collisions after moving
@@ -126,7 +130,7 @@ int main()
         {Point(100, 500), Vec2d(500, 50)},
         //{Point(100, 800), Vec2d(500, -500)}
     };
-    Ball ball{Circle{{99.99, 400}, 10}, {0, 300}, {0, 0}};
+    Ball ball{Circle{{100.01, 400}, 10}, {0, 300}, {0, 0}};
 
     sf::Clock clock;
     Canvas().run([&](auto& window) {
