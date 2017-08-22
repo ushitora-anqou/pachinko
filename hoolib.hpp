@@ -440,6 +440,24 @@ inline Segment makeSegment(const Point& from, const Point& to)
 }
 
 }   // namespace Geometry
+
+namespace Operator
+{
+template<class T>
+std::vector<T>& operator+=(std::vector<T>& lhs, const std::vector<T>& rhs)
+{
+    lhs.reserve(lhs.size() + rhs.size());
+    lhs.insert(lhs.end(), rhs.begin(), rhs.end());
+    return lhs;
+}
+
+template<class T>
+std::vector<T> operator+(std::vector<T> lhs, const std::vector<T>& rhs)
+{
+    lhs += rhs;
+    return lhs;
+}
+}
 }   // namespace HooLib
 
 #endif

@@ -5,9 +5,13 @@
 #include "hoolib.hpp"
 #include "canvas.hpp"
 
+#define NANOSVG_IMPLEMENTATION
+#include "3rd/nanosvg.h"
+
 #include <iostream>
 
 using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq;
+using namespace HooLib::Operator;
 
 std::optional<std::pair<double, double>> solveQuadrantic(double a, double b, double c)
 {
@@ -100,6 +104,21 @@ Vec2d getResilienceNorm(const Line& line, const Vec2d& v)
     auto nv = Vec2d(line.v.y, -line.v.x).norm();
     if(!sameSide(line.v, -v, nv))   nv *= -1.;
     return nv;
+}
+
+std::vector<Point> calcCubicBezPath(const Point& p1, const Point& p2, const Point& p3, const Point& p4, double tol, int level = 0)
+{
+    if(level > 12)  return {};
+    auto p12 = (p1 + p2) * 0.5,
+         p23 = (p2 + p3) * 0.5,
+         p34 = (p3 + p4) * 0.5,
+         p123 = (p12 + p23) * 0.5,
+         p234 = (p23 + p34) * 0.5,
+         p1234 = (p123 + p234) * 0.5;
+    if(calcDistVec(p1234, makeSegment(p1, p4)).lengthSq() <= tol * tol)
+        return {p4};
+    return calcCubicBezPath(p1, p12, p123, p1234, tol, level + 1) +
+           calcCubicBezPath(p1234, p234, p34, p4, tol, level + 1);
 }
 
 class Ball
