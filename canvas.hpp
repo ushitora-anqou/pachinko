@@ -113,6 +113,7 @@ class Canvas
 {
 private:
     std::shared_ptr<sf::RenderWindow> window_;
+    std::shared_ptr<sf::View> view_;
 
 public:
     Canvas()
@@ -126,6 +127,11 @@ public:
             settings
         );
         window_->setFramerateLimit(60);
+
+        view_ = std::make_shared<sf::View>(
+            sf::FloatRect(0, 0, 640, 480)
+        );
+        window_->setView(*view_);
     }
 
     template<class Func>

@@ -242,7 +242,7 @@ public:
 
 int main()
 {
-    Ball ball{Circle{{153, 200}, 5}, {0, 300}, {0, -500}};
+    Ball ball{Circle{{253, 300}, 6}, {0, 300}, {0, -500}};
     SVGParser parser("field.svg");
     //auto contPts = parser.getControllPoints();
     auto bars = parser.createSegments();
@@ -258,7 +258,7 @@ int main()
         window.draw(SfCircle(ball.circle()));
         for(auto&& bar : bars)
             window.draw(SfSegment(bar));
-        DebugPrinter printer(Point(0, 500));
+        DebugPrinter printer(Point(300, 0));
         printer << "x = " << ball.circle().p << std::endl
                 << "v = " << ball.v() << std::endl
                 << "a = " << ball.a() << std::endl;
