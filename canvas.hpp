@@ -125,6 +125,7 @@ public:
             sf::Style::Default,
             settings
         );
+        window_->setFramerateLimit(60);
     }
 
     template<class Func>

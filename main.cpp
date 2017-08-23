@@ -106,6 +106,7 @@ Vec2d getResilienceNorm(const Line& line, const Vec2d& v)
     return nv;
 }
 
+// return points of path except for p1
 std::vector<Point> calcCubicBezPath(const Point& p1, const Point& p2, const Point& p3, const Point& p4, double tol, int level = 0)
 {
     if(level > 12)  return {};
@@ -120,6 +121,55 @@ std::vector<Point> calcCubicBezPath(const Point& p1, const Point& p2, const Poin
     return calcCubicBezPath(p1, p12, p123, p1234, tol, level + 1) +
            calcCubicBezPath(p1234, p234, p34, p4, tol, level + 1);
 }
+
+class SVGParser
+{
+private:
+    std::shared_ptr<NSVGimage> image_;
+
+public:
+    SVGParser(const std::string& filepath)
+        : image_(nsvgParseFromFile(filepath.c_str(), "px", 96), nsvgDelete)
+    {
+        HOOLIB_THROW_UNLESS(image_, "can't read SVG file: " + filepath);
+    }
+
+    std::pair<std::vector<Point>, std::vector<Point>> getControllPoints() const
+    {
+        std::vector<Point> pts14, pts23;
+        for(auto shape = image_->shapes;shape != NULL;shape = shape->next){
+            for(auto path = shape->paths;path != NULL;path = path->next){
+                for(int i = 0;i < path->npts - 1;i += 3){
+                    float *p = &path->pts[i * 2];
+                    pts14.emplace_back(p[0], p[1]);
+                    pts23.emplace_back(p[2], p[3]);
+                    pts23.emplace_back(p[4], p[5]);
+                    pts14.emplace_back(p[6], p[7]);
+                }
+            }
+        }
+        return std::make_pair(pts14, pts23);
+
+    }
+
+    std::vector<Segment> createSegments() const
+    {
+        std::vector<Segment> ret;
+        for(auto shape = image_->shapes;shape != NULL;shape = shape->next){
+            for(auto path = shape->paths;path != NULL;path = path->next){
+                std::vector<Point> points({Point(path->pts[0], path->pts[1])});
+                for(int i = 0;i < path->npts - 1;i += 3){
+                    float *p = &path->pts[i * 2];
+                    points += calcCubicBezPath({p[0], p[1]}, {p[2], p[3]}, {p[4], p[5]}, {p[6], p[7]}, 1);
+                }
+                if(path->closed)    points.push_back(points.front());
+                for(int i = 1;i < points.size();i++)
+                    ret.push_back(makeSegment(points[i - 1], points[i]));
+            }
+        }
+        return ret;
+    }
+};
 
 class Ball
 {
@@ -192,27 +242,29 @@ public:
 
 int main()
 {
-    std::vector<Segment> bars = {
-        {Point(100, 500), Vec2d(500, 80)},
-        {Point(100, 800), Vec2d(500, -500)}
-    };
-    Ball ball{Circle{{100.01, 400}, 5}, {0, 300}, {0, 0}};
+    Ball ball{Circle{{153, 200}, 5}, {0, 300}, {0, -500}};
+    SVGParser parser("field.svg");
+    //auto contPts = parser.getControllPoints();
+    auto bars = parser.createSegments();
 
     sf::Clock clock;
     Canvas().run([&](auto& window) {
         // update
         double dt = clock.restart().asSeconds();
-        ball.update(dt, bars);
+        if(sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
+            ball.update(dt, bars);
 
         // draw
         window.draw(SfCircle(ball.circle()));
         for(auto&& bar : bars)
             window.draw(SfSegment(bar));
-        DebugPrinter printer(Point(0, 0));
+        DebugPrinter printer(Point(0, 500));
         printer << "x = " << ball.circle().p << std::endl
                 << "v = " << ball.v() << std::endl
                 << "a = " << ball.a() << std::endl;
         window.draw(printer);
+        //for(auto&& pt : contPts.first)
+        //    window.draw(SfDot(pt));
     });
     return 0;
 }
