@@ -9,8 +9,9 @@
 #include "3rd/nanosvg.h"
 
 #include <iostream>
+#include <bitset>
 
-using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq;
+using HooLib::equal, HooLib::equal0, HooLib::between, HooLib::betweenEq, HooLib::deg2rad;
 using namespace HooLib::Operator;
 
 std::optional<std::pair<double, double>> solveQuadrantic(double a, double b, double c)
@@ -122,13 +123,15 @@ std::vector<Point> calcCubicBezPath(const Point& p1, const Point& p2, const Poin
            calcCubicBezPath(p1234, p234, p34, p4, tol, level + 1);
 }
 
-class SVGParser
+class FieldSVGParser
 {
+    constexpr static unsigned int BAR_FILL_COLOR = 0xff0000ff;
+
 private:
     std::shared_ptr<NSVGimage> image_;
 
 public:
-    SVGParser(const std::string& filepath)
+    FieldSVGParser(const std::string& filepath)
         : image_(nsvgParseFromFile(filepath.c_str(), "px", 96), nsvgDelete)
     {
         HOOLIB_THROW_UNLESS(image_, "can't read SVG file: " + filepath);
@@ -152,10 +155,21 @@ public:
 
     }
 
+    std::vector<Point> getBarPoints() const
+    {
+        std::vector<Point> ret;
+        for(auto shape = image_->shapes;shape != NULL;shape = shape->next)
+            if(shape->fill.color == BAR_FILL_COLOR)
+                ret.emplace_back(shape->paths->pts[0], shape->paths->pts[1]);
+        std::sort(HOOLIB_RANGE(ret), [](auto& p1, auto& p2) { return p1.x < p2.x; });
+        return ret;
+    }
+
     std::vector<Segment> createSegments() const
     {
         std::vector<Segment> ret;
         for(auto shape = image_->shapes;shape != NULL;shape = shape->next){
+            if(shape->fill.color == BAR_FILL_COLOR) continue;
             for(auto path = shape->paths;path != NULL;path = path->next){
                 std::vector<Point> points({Point(path->pts[0], path->pts[1])});
                 for(int i = 0;i < path->npts - 1;i += 3){
@@ -240,24 +254,69 @@ public:
     }
 };
 
+class Flipper
+{
+private:
+    const Point pos_;
+    const double omega_, maxAngle_;
+    double angle_;
+    Segment nowBar_;
+    int rotateDir_;
+
+public:
+    Flipper(const Segment& bar, double omega, double maxAngle)
+        : pos_(bar.p), omega_(omega), maxAngle_(maxAngle),
+          angle_(0), nowBar_(bar), rotateDir_(-1)
+    {}
+
+    const Segment& segment() const { return nowBar_; }
+
+    void setDir(int dir) { rotateDir_ = dir; }
+
+    void update(double dt)
+    {
+        if((rotateDir_ == 1 && std::abs(angle_) < std::abs(maxAngle_)) ||
+           (rotateDir_ == -1 && omega_ * angle_ > 0)){
+            double dAngle = rotateDir_ * omega_ * dt;
+            angle_ += dAngle;
+            nowBar_.v = rotate(nowBar_.v, dAngle);
+        }
+    }
+
+};
+
 int main()
 {
     Ball ball{Circle{{253, 300}, 6}, {0, 300}, {0, -500}};
-    SVGParser parser("field.svg");
+    FieldSVGParser parser("field.svg");
     //auto contPts = parser.getControllPoints();
     auto bars = parser.createSegments();
+    Flipper flippers[2] = {
+        {Segment{parser.getBarPoints().at(0), {30, 10}}, deg2rad(-720), deg2rad(30)},
+        {Segment{parser.getBarPoints().at(1), {-30, 10}}, deg2rad(720), deg2rad(30)},
+    };
 
     sf::Clock clock;
     Canvas().run([&](auto& window) {
+        // controll
+        bool executed = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
+        flippers[0].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Left) ? 1 : -1);
+        flippers[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
+
         // update
         double dt = clock.restart().asSeconds();
-        if(sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
-            ball.update(dt, bars);
+        if(executed)
+            ball.update(dt, bars + std::vector<Segment>({flippers[0].segment(), flippers[1].segment()}));
+        for(auto&& flipper : flippers)
+            flipper.update(dt);
 
         // draw
         window.draw(SfCircle(ball.circle()));
         for(auto&& bar : bars)
             window.draw(SfSegment(bar));
+        for(auto&& flipper : flippers)
+            window.draw(SfSegment(flipper.segment()));
+
         DebugPrinter printer(Point(300, 0));
         printer << "x = " << ball.circle().p << std::endl
                 << "v = " << ball.v() << std::endl

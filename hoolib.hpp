@@ -131,6 +131,7 @@ inline int randomInt(int min, int sup)
     return dist(engine);
 }
 
+// min <= x < sup
 inline double randomFloat(double min, double sup)
 {
     static std::mt19937 engine = std::mt19937(std::random_device()());
@@ -405,6 +406,15 @@ template<class T>
 bool sharpAngle(const Vec2<T>& v1, const Vec2<T>& v2)
 {
     return dot(v1, v2) > 0;
+}
+
+template<class T>
+Vec2<T> rotate(const Vec2<T>& v, double angle)
+{
+    return Vec2<T>(
+        v.x * std::cos(angle) - v.y * std::sin(angle),
+        v.x * std::sin(angle) + v.y * std::cos(angle)
+    );
 }
 
 using Vec2d = Vec2<double>;
