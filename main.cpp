@@ -123,9 +123,24 @@ std::vector<Point> calcCubicBezPath(const Point& p1, const Point& p2, const Poin
            calcCubicBezPath(p1234, p234, p34, p4, tol, level + 1);
 }
 
+class Bar
+{
+private:
+    Segment seg_;
+    double e_;
+
+public:
+    Bar(const Segment& seg, double e)
+        : seg_(seg), e_(e)
+    {}
+
+    const Segment& segment() const { return seg_; }
+    double e() const { return e_; }
+};
+
 class FieldSVGParser
 {
-    constexpr static unsigned int BAR_FILL_COLOR = 0xff0000ff;
+    constexpr static unsigned int FLIPPER_FILL_COLOR = 0xff0000ff;
 
 private:
     std::shared_ptr<NSVGimage> image_;
@@ -155,21 +170,22 @@ public:
 
     }
 
-    std::vector<Point> getBarPoints() const
+    std::vector<Point> getFlipperPoints() const
     {
         std::vector<Point> ret;
         for(auto shape = image_->shapes;shape != NULL;shape = shape->next)
-            if(shape->fill.color == BAR_FILL_COLOR)
+            if(shape->fill.color == FLIPPER_FILL_COLOR)
                 ret.emplace_back(shape->paths->pts[0], shape->paths->pts[1]);
         std::sort(HOOLIB_RANGE(ret), [](auto& p1, auto& p2) { return p1.x < p2.x; });
         return ret;
     }
 
-    std::vector<Segment> createSegments() const
+    std::vector<Bar> createBars() const
     {
-        std::vector<Segment> ret;
+        std::vector<Bar> ret;
         for(auto shape = image_->shapes;shape != NULL;shape = shape->next){
-            if(shape->fill.color == BAR_FILL_COLOR) continue;
+            if(shape->fill.color == FLIPPER_FILL_COLOR) continue;
+            double e = HooLib::divd((shape->stroke.color & (0xff << 24)) >> 24, 0xff);
             for(auto path = shape->paths;path != NULL;path = path->next){
                 std::vector<Point> points({Point(path->pts[0], path->pts[1])});
                 for(int i = 0;i < path->npts - 1;i += 3){
@@ -178,7 +194,10 @@ public:
                 }
                 if(path->closed)    points.push_back(points.front());
                 for(int i = 1;i < points.size();i++)
-                    ret.push_back(makeSegment(points[i - 1], points[i]));
+                    ret.emplace_back(
+                        makeSegment(points[i - 1], points[i]),
+                        e
+                    );
             }
         }
         return ret;
@@ -203,12 +222,12 @@ public:
     const Vec2d& a() const { return a_; }
 
 private:
-    void avoidPresentCollision(const std::vector<Segment>& bars)
+    void avoidPresentCollision(const std::vector<Bar>& bars)
     {
         while(true){
             bool hasNoCollision = true;
             for(auto&& bar : bars){
-                auto distVec = calcDistVec(c_.p, bar);
+                auto distVec = calcDistVec(c_.p, bar.segment());
                 double x = c_.r - distVec.length();
                 if(x < 0)   continue;
                 c_.p += (x + SEGMENT_THICKNESS) * -distVec.norm();
@@ -218,28 +237,29 @@ private:
         }
     }
 
-    void processCollision(double dt, const std::vector<Segment>& bars)
+    void processCollision(double dt, const std::vector<Bar>& bars)
     {
         avoidPresentCollision(bars);
 
         // check collisions in moving
         Segment move{c_.p, v_ * dt};
         while(!equal0(move.length())){
-            std::vector<StaticLineVSMovingCircleCollRes> colls;
+            std::vector<std::pair<StaticLineVSMovingCircleCollRes, double>> colls;
             for(auto&& bar : bars){
-                auto res = calcCollisionPos(bar, Circle{move.from(), c_.r}, move);
+                auto res = calcCollisionPos(bar.segment(), Circle{move.from(), c_.r}, move);
                 if(!res)  continue;
-                colls.push_back(*res);
+                colls.push_back(std::make_pair(*res, bar.e()));
             }
             auto it = std::min_element(HOOLIB_RANGE(colls), [&move](const auto& lhs, const auto& rhs) {
-                return distanceSq(move.from(), lhs.circlePosOnHit) < distanceSq(move.from(), rhs.circlePosOnHit);
+                return distanceSq(move.from(), lhs.first.circlePosOnHit) < distanceSq(move.from(), rhs.first.circlePosOnHit);
             });
 
             if(it == colls.end())    break;
 
-            double t = it->elapsedTime;
-            auto p = it->circlePosOnHit, nv = (it->circlePosOnHit - it->contactPos).norm();
-            v_ += 2 * dot(-v_, nv) * nv * 0.8;
+            auto& res = it->first;
+            double t = res.elapsedTime;
+            auto p = res.circlePosOnHit, nv = (res.circlePosOnHit - res.contactPos).norm();
+            v_ += 2 * dot(-v_, nv) * nv * it->second;
             move = Segment{p, v_ * (1 - t) * dt};
         }
 
@@ -247,7 +267,7 @@ private:
     }
 
 public:
-    void update(double dt, const std::vector<Segment>& bars)
+    void update(double dt, const std::vector<Bar>& bars)
     {
         processCollision(dt, bars);
         v_ += a_ * dt;
@@ -260,16 +280,16 @@ private:
     const Point pos_;
     const double omega_, maxAngle_;
     double angle_;
-    Segment nowBar_;
+    Bar nowBar_;
     int rotateDir_;
 
 public:
-    Flipper(const Segment& bar, double omega, double maxAngle)
-        : pos_(bar.p), omega_(omega), maxAngle_(maxAngle),
+    Flipper(const Bar& bar, double omega, double maxAngle)
+        : pos_(bar.segment().p), omega_(omega), maxAngle_(maxAngle),
           angle_(0), nowBar_(bar), rotateDir_(-1)
     {}
 
-    const Segment& segment() const { return nowBar_; }
+    const Bar& bar() const { return nowBar_; }
 
     void setDir(int dir) { rotateDir_ = dir; }
 
@@ -279,51 +299,85 @@ public:
            (rotateDir_ == -1 && omega_ * angle_ > 0)){
             double dAngle = rotateDir_ * omega_ * dt;
             angle_ += dAngle;
-            nowBar_.v = rotate(nowBar_.v, dAngle);
+            nowBar_ = Bar{Segment{pos_, rotate(nowBar_.segment().v, dAngle)}, nowBar_.e()};
         }
     }
 
 };
 
+class Pachinko
+{
+private:
+    Ball ball_;
+    std::array<Flipper, 2> flippers_;
+    std::vector<Bar> bars_;
+    sf::Clock clock_;
+
+public:
+    Pachinko(const Ball& ball, const std::array<Flipper, 2>& flippers, const std::vector<Bar>& bars)
+        : ball_(ball), flippers_(flippers), bars_(bars)
+    {}
+
+    void run()
+    {
+        clock_.restart();
+        Canvas().run([&](auto& window) {
+            // controll
+            bool executed = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
+            flippers_[0].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Left) ? 1 : -1);
+            flippers_[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
+
+            // update
+            double dt = clock_.restart().asSeconds();
+            if(executed)
+                ball_.update(dt, bars_ + std::vector<Bar>({flippers_[0].bar(), flippers_[1].bar()}));
+            for(auto&& flipper : flippers_)
+                flipper.update(dt);
+
+            // draw
+            window.draw(SfCircle(ball_.circle()));
+            for(auto&& bar : bars_)
+                window.draw(SfSegment(bar.segment()));
+            for(auto&& flipper : flippers_)
+                window.draw(SfSegment(flipper.bar().segment()));
+
+            DebugPrinter printer(Point(300, 0));
+            printer << "x = " << ball_.circle().p << std::endl
+                    << "v = " << ball_.v() << std::endl
+                    << "a = " << ball_.a() << std::endl;
+            window.draw(printer);
+            //for(auto&& pt : contPts.first)
+            //    window.draw(SfDot(pt));
+        });
+    }
+};
+
 int main()
 {
-    Ball ball{Circle{{253, 300}, 6}, {0, 300}, {0, -500}};
-    FieldSVGParser parser("field.svg");
-    //auto contPts = parser.getControllPoints();
-    auto bars = parser.createSegments();
-    Flipper flippers[2] = {
-        {Segment{parser.getBarPoints().at(0), {30, 10}}, deg2rad(-720), deg2rad(30)},
-        {Segment{parser.getBarPoints().at(1), {-30, 10}}, deg2rad(720), deg2rad(30)},
-    };
+    FieldSVGParser field("field.svg");
+    Pachinko pachinko(
+        Ball{Circle{{253, 300}, 6}, {0, 300}, {0, -500}},
+        std::array<Flipper, 2>{
+            Flipper{
+                Bar{
+                    Segment{field.getFlipperPoints().at(0), {30, 10}},
+                    0.8
+                },
+                deg2rad(-720),
+                deg2rad(30)
+            },
+            Flipper{
+                Bar{
+                    Segment{field.getFlipperPoints().at(1), {-30, 10}},
+                    0.8
+                },
+                deg2rad(720),
+                deg2rad(30)
+            }
+        },
+        field.createBars()
+    );
+    pachinko.run();
 
-    sf::Clock clock;
-    Canvas().run([&](auto& window) {
-        // controll
-        bool executed = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
-        flippers[0].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Left) ? 1 : -1);
-        flippers[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
-
-        // update
-        double dt = clock.restart().asSeconds();
-        if(executed)
-            ball.update(dt, bars + std::vector<Segment>({flippers[0].segment(), flippers[1].segment()}));
-        for(auto&& flipper : flippers)
-            flipper.update(dt);
-
-        // draw
-        window.draw(SfCircle(ball.circle()));
-        for(auto&& bar : bars)
-            window.draw(SfSegment(bar));
-        for(auto&& flipper : flippers)
-            window.draw(SfSegment(flipper.segment()));
-
-        DebugPrinter printer(Point(300, 0));
-        printer << "x = " << ball.circle().p << std::endl
-                << "v = " << ball.v() << std::endl
-                << "a = " << ball.a() << std::endl;
-        window.draw(printer);
-        //for(auto&& pt : contPts.first)
-        //    window.draw(SfDot(pt));
-    });
     return 0;
 }
