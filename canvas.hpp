@@ -135,7 +135,7 @@ public:
     }
 
     template<class Func>
-    bool run(Func func)
+    int run(Func func)
     {
         while (window_->isOpen())
         {
@@ -145,9 +145,12 @@ public:
                     window_->close();
 
             window_->clear(sf::Color::Black);
-            func(*window_);
+            int res = func(*window_);
+            if(res) return res;
             window_->display();
         }
+
+        return 0;
     }
 };
 

@@ -338,44 +338,45 @@ public:
         : ball_(ball), flippers_(flippers), bars_(bars)
     {}
 
-    void run()
+    int update(sf::RenderWindow& window)
     {
-        clock_.restart();
-        Canvas().run([&](auto& window) {
-            // controll
-            bool executed = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
-            flippers_[0].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Left) ? 1 : -1);
-            flippers_[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
+        if(sf::Keyboard::isKeyPressed(sf::Keyboard::R)) return 1;
 
-            // update
-            double dt = clock_.restart().asSeconds();
-            if(executed)
-                ball_.update(dt, bars_ + std::vector<Bar>({flippers_[0].bar(), flippers_[1].bar()}));
-            for(auto&& flipper : flippers_)
-                flipper.update(dt);
+        // controll
+        bool executed = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
+        flippers_[0].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Left) ? 1 : -1);
+        flippers_[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
 
-            // draw
-            window.draw(SfCircle(ball_.circle()));
-            for(auto&& bar : bars_)
-                window.draw(SfSegment(bar.segment()));
-            for(auto&& flipper : flippers_)
-                window.draw(SfSegment(flipper.bar().segment()));
+        // update
+        double dt = clock_.restart().asSeconds();
+        if(executed)
+            ball_.update(dt, bars_ + std::vector<Bar>({flippers_[0].bar(), flippers_[1].bar()}));
+        for(auto&& flipper : flippers_)
+            flipper.update(dt);
 
-            DebugPrinter printer(Point(400, 0));
-            printer << "x = " << ball_.circle().p << std::endl
-                    << "v = " << ball_.v() << std::endl
-                    << "a = " << ball_.a() << std::endl;
-            window.draw(printer);
-            //for(auto&& pt : contPts.first)
-            //    window.draw(SfDot(pt));
-        });
+        // draw
+        window.draw(SfCircle(ball_.circle()));
+        for(auto&& bar : bars_)
+            window.draw(SfSegment(bar.segment()));
+        for(auto&& flipper : flippers_)
+            window.draw(SfSegment(flipper.bar().segment()));
+
+        DebugPrinter printer(Point(400, 0));
+        printer << "x = " << ball_.circle().p << std::endl
+                << "v = " << ball_.v() << std::endl
+                << "a = " << ball_.a() << std::endl;
+        window.draw(printer);
+        //for(auto&& pt : contPts.first)
+        //    window.draw(SfDot(pt));
+
+        return 0;
     }
 };
 
 int main()
 {
     FieldSVGParser field("field.svg");
-    Pachinko pachinko(
+    Pachinko pachinkoSrc(
         Ball{Circle{{353, 300}, 7}, {0, 200}, {0, -500}},
         std::array<Flipper, 2>{
             Flipper{
@@ -397,7 +398,13 @@ int main()
         },
         field.createBars()
     );
-    pachinko.run();
+
+    std::shared_ptr<Pachinko> pachinko = std::make_shared<Pachinko>(pachinkoSrc);
+    Canvas().run([&](auto& window){
+        if(pachinko->update(window))
+            pachinko = std::make_shared<Pachinko>(pachinkoSrc);
+        return 0;
+    });
 
     return 0;
 }
