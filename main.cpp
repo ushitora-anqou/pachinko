@@ -1,3 +1,4 @@
+#include <functional>
 #include <optional>
 #include <tuple>
 #include <vector>
@@ -127,15 +128,18 @@ class Bar
 {
 private:
     Segment seg_;
+    Vec2d n_;
     double e_;
+    std::function<double(double)> vFunc_;
 
 public:
-    Bar(const Segment& seg, double e)
-        : seg_(seg), e_(e)
+    Bar(const Segment& seg, double e, const std::function<double(double)>& vFunc = [](double) { return 0; })
+        : seg_(seg), n_(Vec2d(seg.v.y, -seg.v.x).norm()), e_(e), vFunc_(vFunc)
     {}
 
     const Segment& segment() const { return seg_; }
     double e() const { return e_; }
+    Vec2d v(double r) const { return vFunc_(r) * n_; }
 };
 
 class FieldSVGParser
@@ -185,7 +189,7 @@ public:
         std::vector<Bar> ret;
         for(auto shape = image_->shapes;shape != NULL;shape = shape->next){
             if(shape->fill.color == FLIPPER_FILL_COLOR) continue;
-            double e = HooLib::divd((shape->stroke.color & (0xff << 24)) >> 24, 0xff);
+            double e = HooLib::divd((shape->stroke.color & (0xff << 24)) >> 24, 0xff * 1.25);
             for(auto path = shape->paths;path != NULL;path = path->next){
                 std::vector<Point> points({Point(path->pts[0], path->pts[1])});
                 for(int i = 0;i < path->npts - 1;i += 3){
@@ -224,7 +228,7 @@ public:
 private:
     void avoidPresentCollision(const std::vector<Bar>& bars)
     {
-        while(true){
+        for(int i = 0;i < 10;i++){
             bool hasNoCollision = true;
             for(auto&& bar : bars){
                 auto distVec = calcDistVec(c_.p, bar.segment());
@@ -234,6 +238,8 @@ private:
                 hasNoCollision = false;
             }
             if(hasNoCollision)  break;
+            if(i == 9)
+                std::cerr << "DEBUG: CAN'T AVOID PRESENT COLLISION." << std::endl;
         }
     }
 
@@ -243,12 +249,13 @@ private:
 
         // check collisions in moving
         Segment move{c_.p, v_ * dt};
-        while(!equal0(move.length())){
-            std::vector<std::pair<StaticLineVSMovingCircleCollRes, double>> colls;
+        for(int i = 0;i < 10;i++){
+            if(equal0(move.length()))   break;
+            std::vector<std::pair<StaticLineVSMovingCircleCollRes, const Bar&>> colls;
             for(auto&& bar : bars){
                 auto res = calcCollisionPos(bar.segment(), Circle{move.from(), c_.r}, move);
                 if(!res)  continue;
-                colls.push_back(std::make_pair(*res, bar.e()));
+                colls.push_back(std::make_pair(*res, bar));
             }
             auto it = std::min_element(HOOLIB_RANGE(colls), [&move](const auto& lhs, const auto& rhs) {
                 return distanceSq(move.from(), lhs.first.circlePosOnHit) < distanceSq(move.from(), rhs.first.circlePosOnHit);
@@ -257,9 +264,10 @@ private:
             if(it == colls.end())    break;
 
             auto& res = it->first;
-            double t = res.elapsedTime;
-            auto p = res.circlePosOnHit, nv = (res.circlePosOnHit - res.contactPos).norm();
-            v_ += 2 * dot(-v_, nv) * nv * it->second;
+            double t = res.elapsedTime, e = it->second.e();
+            auto p = res.circlePosOnHit, nv = (res.circlePosOnHit - res.contactPos).norm(),
+                 v0 = dot(v_, nv) * nv, V = dot(it->second.v((res.contactPos - it->second.segment().p).length()), nv) * nv;
+            v_ += -v0 + (e + 1) * V - e * v0;
             move = Segment{p, v_ * (1 - t) * dt};
         }
 
@@ -283,10 +291,24 @@ private:
     Bar nowBar_;
     int rotateDir_;
 
+    bool isRotating() const
+    {
+        return 
+            (rotateDir_ == 1 && std::abs(angle_) < std::abs(maxAngle_)) ||
+            (rotateDir_ == -1 && omega_ * angle_ > 0);
+    }
+    double getVerocity(double r) const
+    {
+        if(isRotating())
+            return std::abs(omega_ * r);
+        else
+            return 0;
+    }
+
 public:
     Flipper(const Bar& bar, double omega, double maxAngle)
         : pos_(bar.segment().p), omega_(omega), maxAngle_(maxAngle),
-          angle_(0), nowBar_(bar), rotateDir_(-1)
+          angle_(0), nowBar_(bar), rotateDir_(0)
     {}
 
     const Bar& bar() const { return nowBar_; }
@@ -295,14 +317,12 @@ public:
 
     void update(double dt)
     {
-        if((rotateDir_ == 1 && std::abs(angle_) < std::abs(maxAngle_)) ||
-           (rotateDir_ == -1 && omega_ * angle_ > 0)){
+        if(isRotating()){
             double dAngle = rotateDir_ * omega_ * dt;
             angle_ += dAngle;
-            nowBar_ = Bar{Segment{pos_, rotate(nowBar_.segment().v, dAngle)}, nowBar_.e()};
+            nowBar_ = Bar(Segment{pos_, rotate(nowBar_.segment().v, dAngle)}, nowBar_.e(), [this](double r) { return getVerocity(r); });
         }
     }
-
 };
 
 class Pachinko
@@ -341,7 +361,7 @@ public:
             for(auto&& flipper : flippers_)
                 window.draw(SfSegment(flipper.bar().segment()));
 
-            DebugPrinter printer(Point(300, 0));
+            DebugPrinter printer(Point(400, 0));
             printer << "x = " << ball_.circle().p << std::endl
                     << "v = " << ball_.v() << std::endl
                     << "a = " << ball_.a() << std::endl;
@@ -356,23 +376,23 @@ int main()
 {
     FieldSVGParser field("field.svg");
     Pachinko pachinko(
-        Ball{Circle{{253, 300}, 6}, {0, 300}, {0, -500}},
+        Ball{Circle{{353, 300}, 7}, {0, 200}, {0, -500}},
         std::array<Flipper, 2>{
             Flipper{
                 Bar{
                     Segment{field.getFlipperPoints().at(0), {30, 10}},
-                    0.8
+                    1.
                 },
                 deg2rad(-720),
-                deg2rad(30)
+                deg2rad(20)
             },
             Flipper{
                 Bar{
                     Segment{field.getFlipperPoints().at(1), {-30, 10}},
-                    0.8
+                    1.
                 },
                 deg2rad(720),
-                deg2rad(30)
+                deg2rad(20)
             }
         },
         field.createBars()
