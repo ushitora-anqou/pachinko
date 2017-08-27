@@ -325,17 +325,50 @@ public:
     }
 };
 
+class Plunger
+{
+private:
+    struct Target { Point center; double radius; } target_;
+    double level_, chargingSpeed_;
+    Vec2d plungingVelocity_;
+
+public:
+    Plunger(const Point& targetCenter, double targetRadius, const Vec2d& plungingVelocity, double chargingSpeed = 1)
+        : target_{targetCenter, targetRadius}, level_(0), plungingVelocity_(plungingVelocity), chargingSpeed_(chargingSpeed)
+    {}
+
+    double level() const { return level_; }
+
+    bool contains(const Point& p) const
+    {
+        return distanceSq(p, target_.center) < target_.radius * target_.radius;
+    }
+
+    Vec2d restart()
+    {
+        auto res = plungingVelocity_ * level_;
+        level_ = 0;
+        return res;
+    }
+
+    void update(double dt)
+    {
+        level_ = std::min(level_ + chargingSpeed_ * dt, 1.);
+    }
+};
+
 class Pachinko
 {
 private:
     Ball ball_;
     std::array<Flipper, 2> flippers_;
     std::vector<Bar> bars_;
+    Plunger plunger_;
     sf::Clock clock_;
 
 public:
     Pachinko(const Ball& ball, const std::array<Flipper, 2>& flippers, const std::vector<Bar>& bars)
-        : ball_(ball), flippers_(flippers), bars_(bars)
+        : ball_(ball.circle(), ball.a(), Vec2d::zero()), flippers_(flippers), bars_(bars), plunger_(ball.circle().p, ball.circle().r, ball.v())
     {}
 
     int update(sf::RenderWindow& window)
@@ -343,14 +376,19 @@ public:
         if(sf::Keyboard::isKeyPressed(sf::Keyboard::R)) return 1;
 
         // controll
-        bool executed = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
+        bool plunging = sf::Keyboard::isKeyPressed(sf::Keyboard::Space);
         flippers_[0].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Left) ? 1 : -1);
         flippers_[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
 
         // update
         double dt = clock_.restart().asSeconds();
-        if(executed)
-            ball_.update(dt, bars_ + std::vector<Bar>({flippers_[0].bar(), flippers_[1].bar()}));
+        ball_.update(dt, bars_ + std::vector<Bar>({flippers_[0].bar(), flippers_[1].bar()}));
+        if(plunging)    plunger_.update(dt);
+        else if(plunger_.level() != 0){
+            Vec2d v = plunger_.restart();
+            if(plunger_.contains(ball_.circle().p))
+                ball_ = Ball(ball_.circle(), ball_.a(), ball_.v() + v);
+        }
         for(auto&& flipper : flippers_)
             flipper.update(dt);
 
@@ -360,6 +398,7 @@ public:
             window.draw(SfSegment(bar.segment()));
         for(auto&& flipper : flippers_)
             window.draw(SfSegment(flipper.bar().segment()));
+        window.draw(SfCircle(Circle{{500, 348}, plunger_.level() * 7}, sf::Color::Red));
 
         DebugPrinter printer(Point(400, 0));
         printer << "x = " << ball_.circle().p << std::endl
@@ -373,11 +412,11 @@ public:
     }
 };
 
-int main()
+std::shared_ptr<Pachinko> makePachinko()
 {
     FieldSVGParser field("field.svg");
-    Pachinko pachinkoSrc(
-        Ball{Circle{{353, 300}, 7}, {0, 200}, {0, -500}},
+    return std::make_shared<Pachinko>(
+        Ball{Circle{{353, 348}, 7}, {0, 200}, {0, -500}},
         std::array<Flipper, 2>{
             Flipper{
                 Bar{
@@ -398,11 +437,13 @@ int main()
         },
         field.createBars()
     );
+}
 
-    std::shared_ptr<Pachinko> pachinko = std::make_shared<Pachinko>(pachinkoSrc);
+int main()
+{
+    auto pachinko = makePachinko();
     Canvas().run([&](auto& window){
-        if(pachinko->update(window))
-            pachinko = std::make_shared<Pachinko>(pachinkoSrc);
+        if(pachinko->update(window))    pachinko = makePachinko();
         return 0;
     });
 

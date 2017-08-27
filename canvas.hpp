@@ -35,13 +35,13 @@ private:
 class SfCircle : public sf::CircleShape
 {
 public:
-    SfCircle(const Circle& circle)
+    SfCircle(const Circle& circle, const sf::Color& color = sf::Color::White)
         : sf::CircleShape(circle.r)
     {
         setOrigin(circle.r, circle.r);
         setPosition(circle.p.x, circle.p.y);
         //setFillColor(sf::Color::White);
-        setFillColor(sf::Color::White);
+        setFillColor(color);
     }
 };
 
