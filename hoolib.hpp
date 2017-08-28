@@ -49,6 +49,19 @@ inline bool equal0(double x)
 inline double divd(double lhs, double rhs) { return lhs / rhs; }
 
 template<class T>
+constexpr const T& clamp( const T& v, const T& lo, const T& hi )
+{
+    return clamp( v, lo, hi, std::less<>() );
+}
+
+template<class T, class Compare>
+constexpr const T& clamp( const T& v, const T& lo, const T& hi, Compare comp )
+{
+    return assert( !comp(hi, lo) ),
+           comp(v, lo) ? lo : comp(hi, v) ? hi : v;
+}
+
+template<class T>
 bool between(T l, T x, T r)
 {
     return l < x && x < r;
@@ -267,6 +280,18 @@ struct Vec2
         return Vec2(0, 0);
     }
 };
+
+template<class T>
+bool operator==(const Vec2<T>& lhs, const Vec2<T>& rhs)
+{
+    return lhs.x == rhs.x && lhs.y == rhs.y;
+}
+
+template<class T>
+bool operator!=(const Vec2<T>& lhs, const Vec2<T>& rhs)
+{
+    return !(lhs == rhs);
+}
 
 template<class T>
 Vec2<T>& operator+=(Vec2<T>& lhs, const Vec2<T>& rhs)

@@ -208,6 +208,58 @@ public:
     }
 };
 
+class Flipper
+{
+private:
+    const Point pos_;
+    const double omega_, maxAngle_;
+    double angle_;
+    Bar nowBar_;
+    int rotateDir_;
+
+    bool isRotating() const
+    {
+        return 
+            (rotateDir_ == 1 && std::abs(angle_) < std::abs(maxAngle_)) ||
+            (rotateDir_ == -1 && omega_ * angle_ > 0);
+    }
+    double getVerocity(double r) const
+    {
+        if(isRotating())
+            return -omega_ * r;
+        else
+            return 0;
+    }
+
+    void addAngle(double dAngle)
+    {
+        double newAngle = 0;
+        if(omega_ > 0)
+            newAngle = HooLib::clamp(angle_ + dAngle, 0., maxAngle_);
+        else
+            newAngle = HooLib::clamp(angle_ + dAngle, -maxAngle_, 0.);
+        dAngle = newAngle - angle_;
+        angle_ = newAngle;
+        nowBar_ = Bar(Segment{pos_, rotate(nowBar_.segment().v, dAngle)}, nowBar_.e(), [this](double r) { return getVerocity(r); });
+    }
+
+public:
+    Flipper(const Bar& bar, double omega, double maxAngle)
+        : pos_(bar.segment().p), omega_(omega), maxAngle_(maxAngle),
+          angle_(0), nowBar_(bar), rotateDir_(-1)
+    {}
+
+    const Bar& bar() const { return nowBar_; }
+    double omega() const { return omega_; }
+
+    void setDir(int dir) { rotateDir_ = dir; }
+
+    void update(double dt)
+    {
+        if(isRotating())    addAngle(rotateDir_ * omega_ * dt);
+    }
+};
+
 class Ball
 {
     constexpr static double SEGMENT_THICKNESS = 0.0001;
@@ -215,10 +267,11 @@ class Ball
 private:
     Circle c_;
     Vec2d a_, v_;
+    std::array<Segment, 2> prevFlipperSeg_;
 
 public:
     Ball(const Circle& c, const Vec2d& a, const Vec2d& v)
-        : c_(c), a_(a), v_(v)
+        : c_(c), a_(a), v_(v), prevFlipperSeg_({Segment{Vec2d::zero(), Vec2d::zero()}, Segment{Vec2d::zero(), Vec2d::zero()}})
     {}
 
     const Circle& circle() const { return c_; }
@@ -226,33 +279,55 @@ public:
     const Vec2d& a() const { return a_; }
 
 private:
-    void avoidPresentCollision(const std::vector<Bar>& bars)
+    void avoidPresentCollision(double dt, const std::vector<Bar>& bars, const std::array<Flipper, 2>& flippers)
     {
+        bool debuged = false;
         for(int i = 0;i < 10;i++){
-            bool hasNoCollision = true;
+            bool hasCollision = false;
             for(auto&& bar : bars){
                 auto distVec = calcDistVec(c_.p, bar.segment());
                 double x = c_.r - distVec.length();
                 if(x < 0)   continue;
                 c_.p += (x + SEGMENT_THICKNESS) * -distVec.norm();
-                hasNoCollision = false;
+                hasCollision = true;
             }
-            if(hasNoCollision)  break;
+            for(int i = 0;i < 2;i++){
+                const auto& flipper = flippers[i];
+                const auto& seg = flipper.bar().segment();
+                const auto& prevSeg = prevFlipperSeg_[i];
+                auto distVec = calcDistVec(c_.p, seg);
+                double x = c_.r - distVec.length();
+                if(x < 0)   continue;
+                if(prevSeg.v != Vec2d::zero() && !sameSide(c_.p - seg.from(), seg.v, prevSeg.v)){
+                    distVec *= -1.;
+                    x += c_.r;
+                    std::cerr << "DEBUG: FLIPPER SPECIAL" << -distVec.x << ", " << -distVec.y << std::endl;
+                    debuged = true;
+                }
+                c_.p += (x + SEGMENT_THICKNESS) * -distVec.norm();
+                hasCollision = true;
+            }
+            if(!hasCollision)    break;
             if(i == 9)
                 std::cerr << "DEBUG: CAN'T AVOID PRESENT COLLISION." << std::endl;
         }
+        if(debuged) std::cerr << std::endl;
+
+        prevFlipperSeg_[0] = flippers[0].bar().segment();
+        prevFlipperSeg_[1] = flippers[1].bar().segment();
     }
 
-    void processCollision(double dt, const std::vector<Bar>& bars)
+    void processCollision(double dt, const std::vector<Bar>& bars, const std::array<Flipper, 2>& flippers)
     {
-        avoidPresentCollision(bars);
+        avoidPresentCollision(dt, bars, flippers);
 
         // check collisions in moving
+        auto barsAll = bars + std::vector<Bar>({flippers[0].bar(), flippers[1].bar()});
         Segment move{c_.p, v_ * dt};
         for(int i = 0;i < 10;i++){
             if(equal0(move.length()))   break;
             std::vector<std::pair<StaticLineVSMovingCircleCollRes, const Bar&>> colls;
-            for(auto&& bar : bars){
+            for(auto&& bar : barsAll){
                 auto res = calcCollisionPos(bar.segment(), Circle{move.from(), c_.r}, move);
                 if(!res)  continue;
                 colls.push_back(std::make_pair(*res, bar));
@@ -275,55 +350,13 @@ private:
     }
 
 public:
-    void update(double dt, const std::vector<Bar>& bars)
+    void update(double dt, const std::vector<Bar>& bars, const std::array<Flipper, 2>& flippers)
     {
-        processCollision(dt, bars);
+        processCollision(dt, bars, flippers);
         v_ += a_ * dt;
     }
 };
 
-class Flipper
-{
-private:
-    const Point pos_;
-    const double omega_, maxAngle_;
-    double angle_;
-    Bar nowBar_;
-    int rotateDir_;
-
-    bool isRotating() const
-    {
-        return 
-            (rotateDir_ == 1 && std::abs(angle_) < std::abs(maxAngle_)) ||
-            (rotateDir_ == -1 && omega_ * angle_ > 0);
-    }
-    double getVerocity(double r) const
-    {
-        if(isRotating())
-            return std::abs(omega_ * r);
-        else
-            return 0;
-    }
-
-public:
-    Flipper(const Bar& bar, double omega, double maxAngle)
-        : pos_(bar.segment().p), omega_(omega), maxAngle_(maxAngle),
-          angle_(0), nowBar_(bar), rotateDir_(0)
-    {}
-
-    const Bar& bar() const { return nowBar_; }
-
-    void setDir(int dir) { rotateDir_ = dir; }
-
-    void update(double dt)
-    {
-        if(isRotating()){
-            double dAngle = rotateDir_ * omega_ * dt;
-            angle_ += dAngle;
-            nowBar_ = Bar(Segment{pos_, rotate(nowBar_.segment().v, dAngle)}, nowBar_.e(), [this](double r) { return getVerocity(r); });
-        }
-    }
-};
 
 class Plunger
 {
@@ -381,16 +414,18 @@ public:
         flippers_[1].setDir(sf::Keyboard::isKeyPressed(sf::Keyboard::Right) ? 1 : -1);
 
         // update
-        double dt = clock_.restart().asSeconds();
-        ball_.update(dt, bars_ + std::vector<Bar>({flippers_[0].bar(), flippers_[1].bar()}));
-        if(plunging)    plunger_.update(dt);
-        else if(plunger_.level() != 0){
-            Vec2d v = plunger_.restart();
-            if(plunger_.contains(ball_.circle().p))
-                ball_ = Ball(ball_.circle(), ball_.a(), ball_.v() + v);
+        double dt = clock_.restart().asSeconds() / 4;
+        for(int i = 0;i < 4;i++){
+            ball_.update(dt, bars_, flippers_);
+            if(plunging)    plunger_.update(dt);
+            else if(plunger_.level() != 0){
+                Vec2d v = plunger_.restart();
+                if(plunger_.contains(ball_.circle().p))
+                    ball_ = Ball(ball_.circle(), ball_.a(), ball_.v() + v);
+            }
+            for(auto&& flipper : flippers_)
+                flipper.update(dt);
         }
-        for(auto&& flipper : flippers_)
-            flipper.update(dt);
 
         // draw
         window.draw(SfCircle(ball_.circle()));
@@ -420,16 +455,16 @@ std::shared_ptr<Pachinko> makePachinko()
         std::array<Flipper, 2>{
             Flipper{
                 Bar{
-                    Segment{field.getFlipperPoints().at(0), {30, 10}},
-                    1.
+                    Segment{field.getFlipperPoints().at(0), {40, 10}},
+                    0.8
                 },
                 deg2rad(-720),
                 deg2rad(20)
             },
             Flipper{
                 Bar{
-                    Segment{field.getFlipperPoints().at(1), {-30, 10}},
-                    1.
+                    Segment{field.getFlipperPoints().at(1), {-40, 10}},
+                    0.8
                 },
                 deg2rad(720),
                 deg2rad(20)
