@@ -121,7 +121,7 @@ public:
         sf::ContextSettings settings;
         settings.antialiasingLevel = 8;
         window_ = std::make_shared<sf::RenderWindow>(
-            sf::VideoMode(800, 600),
+            sf::VideoMode(1280, 960),
             "Pachinko",
             sf::Style::Default,
             settings

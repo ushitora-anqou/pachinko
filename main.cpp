@@ -399,10 +399,20 @@ private:
     Plunger plunger_;
     sf::Clock clock_;
 
+    sf::Texture ballTexture_;
+    sf::Sprite ballSprite_;
+
 public:
     Pachinko(const Ball& ball, const std::array<Flipper, 2>& flippers, const std::vector<Bar>& bars)
         : ball_(ball.circle(), ball.a(), Vec2d::zero()), flippers_(flippers), bars_(bars), plunger_(ball.circle().p, ball.circle().r, ball.v())
-    {}
+    {
+        ballTexture_.loadFromFile("3rd/hanakun.jpg");
+        HOOLIB_THROW_UNLESS(ballTexture_.loadFromFile("3rd/hanakun.jpg"), "can't create texture");
+        ballTexture_.setSmooth(true);
+        ballSprite_.setTexture(ballTexture_);
+        ballSprite_.setOrigin(sf::Vector2f(159.5, 159.5));
+        ballSprite_.setScale(sf::Vector2f(25. / 319, 25. / 319));
+    }
 
     int update(sf::RenderWindow& window)
     {
@@ -428,7 +438,9 @@ public:
         }
 
         // draw
-        window.draw(SfCircle(ball_.circle()));
+        //window.draw(SfCircle(ball_.circle()));
+        ballSprite_.setPosition(sf::Vector2f(ball_.circle().p.x, ball_.circle().p.y));
+        window.draw(ballSprite_);
         for(auto&& bar : bars_)
             window.draw(SfSegment(bar.segment()));
         for(auto&& flipper : flippers_)
@@ -451,7 +463,7 @@ std::shared_ptr<Pachinko> makePachinko()
 {
     FieldSVGParser field("field.svg");
     return std::make_shared<Pachinko>(
-        Ball{Circle{{353, 348}, 7}, {0, 200}, {0, -500}},
+        Ball{Circle{{383, 398}, 10}, {0, 200}, {0, -500}},
         std::array<Flipper, 2>{
             Flipper{
                 Bar{
